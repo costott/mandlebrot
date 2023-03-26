@@ -32,7 +32,7 @@ pub const PALLETE_LENGTH_INC_SPEED: f32 = 50f32;
 
 pub const THREADS: usize = 15; //12 14 15 17
 
-pub const START_PALLETE_LENGTH: f32 = 250.;
+pub const START_PALLETE_LENGTH: f32 = 189.43372;//250.;
 
 #[derive(Clone)]
 pub struct JuliaSeed {
@@ -79,10 +79,11 @@ impl RenderMode {
 }
 
 #[derive(Clone)]
-struct ScreenDimensions {
+pub struct ScreenDimensions {
     x: usize,
     y: usize
 }
+#[allow(unused)]
 impl ScreenDimensions {
     pub fn new(x: usize, y: usize) -> ScreenDimensions {
         ScreenDimensions { x, y }
@@ -90,6 +91,29 @@ impl ScreenDimensions {
 
     pub fn from_tuple(dimensions: (usize, usize)) -> ScreenDimensions {
         ScreenDimensions { x: dimensions.0, y: dimensions.1 }
+    }
+
+    pub fn tuple_8k() -> (usize, usize) {
+        (7680, 4320)
+    }
+
+    pub fn tuple_4k() -> (usize, usize) {
+        (3840, 2160)
+    }
+
+    pub fn tuple_1080p() -> (usize, usize) {
+        (1920, 1080)
+    }
+
+    /// returns a string representing the dimension
+    fn as_string(&self) -> String {
+        let res = format!["{}x{}", self.x, self.y];
+        String::from( match (self.x, self.y) {
+            (1920, 1080) => "1080p",
+            (3840, 2160) => "4k",
+            (7680, 4320) => "8k",
+            (_, _) => &res
+        })
     }
 }
 
@@ -109,7 +133,7 @@ fn diverges(c: Complex, max_iterations: u32) -> f64 {
     0.0
 }
 
-// DERIVATIVED AND 3D DIVERGENCE FROM:
+// DERIVATIVED AND 3D DIVERGENCE THEORY FROM:
 // https://www.math.univ-toulouse.fr/~cheritat/wiki-draw/index.php/Mandelbrot_set#Drawing_algorithms
 
 /// derivatived divergence
@@ -230,10 +254,8 @@ fn diverges_3d_variated(c: Complex, max_iterations: u32) -> f64 {
     0.0
 }
 
-#[allow(dead_code)]
 // const SEED: Complex = Complex { real: 0.285 , im: 0. };
 // const SEED: Complex = Complex { real: -0.4, im: 0.6 };
-#[allow(dead_code)]
 /// julia set divergence
 fn diverges_julia(c: Complex, max_iterations: u32, seed: &JuliaSeed) -> f64 {
     let seed = Complex::new(seed.real, seed.im);
@@ -392,7 +414,7 @@ impl Visualiser {
             let pallete = self.pallete.clone();
             let render_mode = self.render_mode.clone();
             let dimensions = self.current_dimensions.clone();
-            threads.push(thread::spawn(move || { // sorry for the spaghetti
+            threads.push(thread::spawn(move || { // nesting to infinity
                 for x in 0..dimensions.x {
                     for y in start_y..start_y+thread_height {
                         let z = Complex::new(
@@ -566,7 +588,7 @@ impl Visualiser {
 
         let datetime = chrono::offset::Local::now();
         let fmt = StrftimeItems::new("%Y%m%d_%H_%M_%S");
-        let image_name = format!["{}", datetime.format_with_items(fmt.clone())];
+        let image_name = format!["{}_{}", datetime.format_with_items(fmt.clone()), self.screenshot_dimensions.as_string()];
         images_path.push(image_name.clone());
         fs::create_dir(&images_path).unwrap();
 
