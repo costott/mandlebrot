@@ -7,10 +7,10 @@ use std::slice::Iter;
 use std::fs;
 use ::rand::Rng;
 
-mod complex;
+pub mod complex;
 use complex::Complex;
 mod palletes;
-use palletes::COLOUR_MAP;
+use palletes::{COLOUR_MAP, TRAP_MAP};
 
 // width+height only used for the buhddabrot
 pub const WIDTH: usize = 600;
@@ -25,6 +25,9 @@ pub const H2: f64 = 1.5;
 pub const ANGLE: f64 = -45.;
 pub const BAILOUT_3D: f64 = 10000.;
 
+// orbit trap
+pub const BAILOUT_ORBIT_TRAP: f64 = 25.0;
+
 // user changing view
 pub const ZOOM_PERCENT_INC: f64 = 0.5f64;
 pub const MAX_ITER_INC_SPEED: f32 = 10f32;
@@ -32,7 +35,9 @@ pub const PALLETE_LENGTH_INC_SPEED: f32 = 50f32;
 
 pub const THREADS: usize = 15; //12 14 15 17
 
-pub const START_PALLETE_LENGTH: f32 = 189.43372;//250.;
+pub const START_PALLETE_LENGTH: f32 = 1000.0;//153.173;//250.;
+
+pub const MAX_ITERATION_STEPS: [f32; 5] = [250.0, 500.0, 1000.0, 2500.0, 5000.0];
 
 #[derive(Clone)]
 pub struct JuliaSeed {
@@ -45,6 +50,117 @@ impl JuliaSeed {
     }
 }
 
+pub mod orbit_trap {
+    use crate::BAILOUT_ORBIT_TRAP;
+
+    use super::complex::Complex;
+
+    #[derive(Clone)]
+    pub struct OrbitTrapPoint {
+        point: Complex
+    }
+    impl OrbitTrapPoint {
+        pub fn new(point: (f64, f64)) -> OrbitTrapPoint {
+            OrbitTrapPoint { point: Complex::new(point.0, point.1) }
+        }
+
+        /// returns the distance squared between the 
+        /// given complex number and the point trap
+        pub fn distance2(&self, z: Complex) -> f64 {
+            (z-self.point).abs_squared()
+        }
+
+        /// returns the maximum possible distance
+        /// a complex number can be from the trap
+        pub fn greatest_distance2(&self) -> f64 {
+            BAILOUT_ORBIT_TRAP.sqrt() + self.point.abs_squared().sqrt()
+        }
+    }
+
+    #[derive(Clone)]
+    pub struct OrbitTrapCross {
+        centre: Complex,
+        arm_length: f64
+    }
+    impl OrbitTrapCross {
+        pub fn new(centre: (f64, f64), arm_length: f64) -> OrbitTrapCross {
+            OrbitTrapCross { 
+                centre: Complex::new(centre.0, centre.1), 
+                arm_length
+            }
+        }
+        
+        /// returns the shortest distance squared between the 
+        /// given complex number and the cross trap
+        pub fn distance2(&self, z: Complex) -> f64 {
+            let shortest_distance;
+            let x_dist = z.real-self.centre.real;
+            let x_dist2 = x_dist.powi(2);
+            let y_dist = z.im-self.centre.im;
+            let y_dist2 = y_dist.powi(2);
+            if self.centre.im - self.arm_length <= z.im && z.im <= self.centre.im + self.arm_length &&
+                self.centre.real - self.arm_length <= z.real && z.real <= self.centre.real + self.arm_length {
+                shortest_distance = f64::min(x_dist2, y_dist2);
+            } else if x_dist2 < y_dist2 {
+                shortest_distance = (z-
+                    Complex::new(self.centre.real, self.centre.im+y_dist.signum()*self.arm_length)
+                ).abs_squared();
+            } else {
+                shortest_distance = (z-
+                    Complex::new(self.centre.real+x_dist.signum()*self.arm_length, self.centre.im)
+                ).abs_squared();
+            }
+
+            shortest_distance
+        }
+
+        /// returns the maximum possible distance
+        /// a complex number can be from the trap
+        pub fn greatest_distance2(&self) -> f64 {
+            BAILOUT_ORBIT_TRAP.sqrt() + self.centre.abs_squared().sqrt()
+        }
+    }
+
+    #[derive(Clone)]
+    pub struct OrbitTrapCircle {
+        centre: Complex,
+        pub radius: f64
+    }
+    impl OrbitTrapCircle {
+        pub fn new(centre: (f64, f64), radius: f64) -> OrbitTrapCircle {
+            OrbitTrapCircle { 
+                centre: Complex::new(centre.0, centre.1), 
+                radius
+            }
+        }
+
+        /// returns the shortest distance between the 
+        /// given complex number and the circle trap
+        pub fn distance2(&self, z: Complex) -> f64 {
+            ((z-self.centre).abs_squared().sqrt() - self.radius).powi(2)
+        }
+
+        /// returns the maximum possible distance
+        /// a complex number can be from the trap
+        pub fn greatest_distance2(&self) -> f64 {
+            let big_rad = BAILOUT_ORBIT_TRAP.sqrt();
+            f64::max(
+                big_rad - (self.radius - self.centre.abs_squared().sqrt()), 
+                self.radius
+            )
+        }
+    }
+
+    #[derive(Clone)]
+    pub enum OrbitTrapType {
+        Point(OrbitTrapPoint),
+        Cross(OrbitTrapCross),
+        Circle(OrbitTrapCircle)
+    }
+}
+
+use orbit_trap::*;
+
 #[derive(Clone)]
 pub enum RenderMode {
     ColouredFlat,
@@ -52,6 +168,9 @@ pub enum RenderMode {
     Greyscale3D,
     Coloured3D,
     Greyscale3DVariated,
+    OrbitTrap(OrbitTrapType),
+    OrbitTrap3D(OrbitTrapType),
+    OrbitTrap3DColoured(OrbitTrapType),
     Julia(JuliaSeed)
 }
 impl RenderMode {
@@ -73,6 +192,9 @@ impl RenderMode {
             RenderMode::Greyscale3D => "Greyscale3D", 
             RenderMode::Coloured3D => "Coloured3D",
             RenderMode::Greyscale3DVariated => "Greyscale3DVariated",
+            RenderMode::OrbitTrap(_) => "OrbitTrap",
+            RenderMode::OrbitTrap3D(_) => "OrbitTrap3D",
+            RenderMode::OrbitTrap3DColoured(_) => "OrbitTrap3DColoured",
             RenderMode::Julia(_) => "Julia"
         })
     }
@@ -208,7 +330,7 @@ fn diverges_3d_coloured(c: Complex, max_iterations: u32) -> (f64, f64) {
             u = u / f64::sqrt(u.abs_squared());
             let mut t = u.real*v.real + u.im*v.im + H2;
             t = t/(1.+H2);
-            if t < 0. {t = 0.};
+            if t < 0. {t = 0.}; 
             let log_zmod = f64::log2(z.abs_squared()) / 2.0;
             let nu = f64::log2(log_zmod);
             let smooth_iteration = i as f64 + 1.0 - nu;
@@ -252,6 +374,127 @@ fn diverges_3d_variated(c: Complex, max_iterations: u32) -> f64 {
         z = z.square() + c;
     }
     0.0
+}
+
+/// orbit trap colouring
+fn diverges_orbit_trap(c: Complex, max_iterations: u32, trap: &OrbitTrapType) -> f64 {
+    let mut min_trap_distance2 = match trap {
+        OrbitTrapType::Point(point) => point.greatest_distance2(),
+        OrbitTrapType::Cross(cross) => cross.greatest_distance2(),
+        OrbitTrapType::Circle(circle) => circle.greatest_distance2()
+    };
+    let divisor = min_trap_distance2.sqrt() / max_iterations as f64;
+    let mut z = c;
+
+    for _ in 0..max_iterations {
+        let z_trap_distance2 = match trap {
+            OrbitTrapType::Point(point) => point.distance2(z),
+            OrbitTrapType::Cross(cross) => cross.distance2(z),
+            OrbitTrapType::Circle(circle) => circle.distance2(z)
+        };
+        if z_trap_distance2 < min_trap_distance2 {
+            min_trap_distance2 = z_trap_distance2;
+        }
+        if z.abs_squared() > BAILOUT_ORBIT_TRAP {
+            // convert min trap distance as if working with max iterations
+            // min_trap_distance2.sqrt() / divisor
+            return min_trap_distance2.sqrt() / divisor;
+        }  
+        z = z.square() + c;
+    }
+    
+    0.0
+}
+
+/// orbit trap colouring, returning t and the trapped i
+fn diverges_orbit_trap_3d(c: Complex, max_iterations: u32, trap: &OrbitTrapType) -> (f64, f64) {
+    let v = Complex::new(
+        f64::cos(ANGLE * (PI / 180.)),
+        f64::sin(ANGLE * (PI / 180.))
+    );
+    let mut min_trap_distance2 = match trap {
+        OrbitTrapType::Point(point) => point.greatest_distance2(),
+        OrbitTrapType::Cross(cross) => cross.greatest_distance2(),
+        OrbitTrapType::Circle(circle) => circle.greatest_distance2()
+    };
+    let divisor = min_trap_distance2.sqrt() / max_iterations as f64;
+    let mut z = c;
+    let dc = Complex::new(1., 0.);
+    let mut der = dc;
+    
+    for _ in 0..max_iterations {
+        let z_trap_distance2 = match trap {
+            OrbitTrapType::Point(point) => point.distance2(z),
+            OrbitTrapType::Cross(cross) => cross.distance2(z),
+            OrbitTrapType::Circle(circle) => circle.distance2(z)
+        };
+        if z_trap_distance2 < min_trap_distance2 {
+            min_trap_distance2 = z_trap_distance2;
+        }
+        if z.abs_squared() > BAILOUT_ORBIT_TRAP {
+            let mut u = z / der;
+            u = u / f64::sqrt(u.abs_squared());
+            let mut t = u.real*v.real + u.im*v.im + H2;
+            t = t/(1.+H2);
+            if t < 0. {t = 0.}; 
+
+            // convert min trap distance as if working with max iterations
+            // min_trap_distance2.sqrt() / divisor
+            let trapped_i =  min_trap_distance2.sqrt() / divisor;
+            return (t, trapped_i)
+        }  
+        der = der * (z * 2.) + dc; // brackets not needed but just to make more sense
+        z = z.square() + c;
+    }
+    (0.0, 0.0)
+}
+
+/// orbit trap colouring, returning t, trapped i, and smooth i
+fn diverges_orbit_trap_3d_coloured(c: Complex, max_iterations: u32, trap: &OrbitTrapType) -> (f64, f64, f64) {
+    let v = Complex::new(
+        f64::cos(ANGLE * (PI / 180.)),
+        f64::sin(ANGLE * (PI / 180.))
+    );
+    let mut min_trap_distance2 = match trap {
+        OrbitTrapType::Point(point) => point.greatest_distance2(),
+        OrbitTrapType::Cross(cross) => cross.greatest_distance2(),
+        OrbitTrapType::Circle(circle) => circle.greatest_distance2()
+    };
+    let divisor = min_trap_distance2.sqrt() / max_iterations as f64;
+    let mut z = c;
+    let dc = Complex::new(1., 0.);
+    let mut der = dc;
+    
+    for i in 0..max_iterations {
+        let z_trap_distance2 = match trap {
+            OrbitTrapType::Point(point) => point.distance2(z),
+            OrbitTrapType::Cross(cross) => cross.distance2(z),
+            OrbitTrapType::Circle(circle) => circle.distance2(z)
+        };
+        if z_trap_distance2 < min_trap_distance2 {
+            min_trap_distance2 = z_trap_distance2;
+        }
+        if z.abs_squared() > BAILOUT_ORBIT_TRAP {
+            let mut u = z / der;
+            u = u / f64::sqrt(u.abs_squared());
+            let mut t = u.real*v.real + u.im*v.im + H2;
+            t = t/(1.+H2);
+            if t < 0. {t = 0.}; 
+
+            // convert min trap distance as if working with max iterations
+            // min_trap_distance2.sqrt() / divisor
+            let trapped_i =  min_trap_distance2.sqrt() / divisor;
+
+            let log_zmod = f64::log2(z.abs_squared()) / 2.0;
+            let nu = f64::log2(log_zmod);
+            let smooth_iteration = i as f64 + 1.0 - nu;
+
+            return (t, trapped_i, smooth_iteration)
+        }  
+        der = der * (z * 2.) + dc; // brackets not needed but just to make more sense
+        z = z.square() + c;
+    }
+    (0.0, 0.0, 0.0)
 }
 
 // const SEED: Complex = Complex { real: 0.285 , im: 0. };
@@ -335,6 +578,7 @@ pub struct Visualiser {
     texture: Texture2D, 
     move_speed: f64,
     pallete: Vec<Color>,
+    trap_pallete: Vec<Color>,
     pallete_length: f32
 }
 impl Visualiser {
@@ -356,7 +600,8 @@ impl Visualiser {
             ))),
             texture: Texture2D::empty(),
             move_speed: 1f64, 
-            pallete: Vec::new(), pallete_length: START_PALLETE_LENGTH
+            pallete: Vec::new(), pallete_length: START_PALLETE_LENGTH,
+            trap_pallete: Vec::new()
         }
     }
 
@@ -364,43 +609,59 @@ impl Visualiser {
         self.pixel_step = pixel_step;
         self.center = (center_x, center_y);
         self.max_iterations = max_iterations;
+        self.move_speed *= pixel_step / 0.005;
     }
 
-    fn i_to_world_index(&self, i: u32) -> f32 {
-        (i as f32 / self.max_iterations) * (1000. / self.pallete_length) * (COLOUR_MAP.len()-1) as f32
+    /// world index goes from 0 -> len of colour map
+    fn i_to_world_index(&self, i: u32, colour_map: &Vec<Color>, length: f32) -> f32 {
+        (i as f32 / self.max_iterations) * (1000. / length) * (colour_map.len()-1) as f32
     }
 
-    fn world_index_to_i(&self, world_index: f32) -> u32 {
-        (world_index * (1. / (COLOUR_MAP.len()-1) as f32) * (self.pallete_length / 1000.) * self.max_iterations).floor() as u32
+    fn world_index_to_i(&self, world_index: f32, colour_map: &Vec<Color>, length: f32) -> u32 {
+        (world_index * (1. / (colour_map.len()-1) as f32) * (length / 1000.) * self.max_iterations).floor() as u32
     }
 
-    fn make_pallete(&mut self) {
-        self.pallete = Vec::with_capacity(self.max_iterations as usize);
+    fn make_pallete(&mut self, colour_map: &Vec<Color>, length: f32) -> Vec<Color> {
+        let mut pallete = Vec::with_capacity(self.max_iterations as usize);
 
         for i in 0..=self.max_iterations as u32 {
-            let world_index = self.i_to_world_index(i);
+            let world_index = self.i_to_world_index(i, colour_map, length);
             let lower_world_index = world_index.floor();
-            let colour_index = world_index.floor() as usize % (COLOUR_MAP.len()-1);
+            let mut colour_index = world_index.floor() as usize % (colour_map.len()-1);
             
-            let lower = COLOUR_MAP[colour_index];
+            // fix situation where last colour represents the start (0) instead of end 
+            // because of the modulus
+            if world_index as usize == colour_map.len()-1 && i == self.max_iterations as u32 {
+                colour_index = colour_map.len()-1;
+            }
+
+            let lower = colour_map[colour_index];
+            // UNCOMMENT IF FIRST COLOUR SHOULD BE A DIFFERENT COLOUR TO THE SCHEME
             // if world_index < (COLOUR_MAP.len()-1) as f32 && colour_index == 0 {
             //     lower = BLACK;
             // }
-            let lower_i = self.world_index_to_i(lower_world_index);
-            let upper = COLOUR_MAP[colour_index+1];
-            let upper_i = self.world_index_to_i(lower_world_index+1.);
+            let lower_i = self.world_index_to_i(lower_world_index, colour_map, length);
+            let upper = colour_map[(colour_index+1).min(colour_map.len()-1)];
+            let upper_i = self.world_index_to_i(lower_world_index+1., colour_map, length);
 
             let inner_fraction = (i-lower_i) as f32 / (upper_i-lower_i) as f32;
 
-            self.pallete.push(interpolate_colour(lower, upper, inner_fraction));
+            pallete.push(interpolate_colour(lower, upper, inner_fraction));
         }
+
+        pallete
     }
 
     /// generates and stores the mandlebrot image
     /// for the current parameters
     pub fn generate_image(&mut self) {
         if self.pallete.len() != self.max_iterations as usize {
-            self.make_pallete();
+            let colour_map = COLOUR_MAP.to_vec();
+            self.pallete = self.make_pallete(&colour_map, self.pallete_length);
+        }
+        if self.trap_pallete.len() != self.max_iterations as usize {
+            let colour_map = TRAP_MAP.to_vec();
+            self.trap_pallete = self.make_pallete(&colour_map, 1000.0);
         }
         
         let thread_height = self.current_dimensions.y / THREADS;
@@ -412,6 +673,7 @@ impl Visualiser {
             let max_iterations = self.max_iterations.clone() as u32;
             let image = Arc::clone(&self.image);
             let pallete = self.pallete.clone();
+            let trap_pallete = self.trap_pallete.clone();
             let render_mode = self.render_mode.clone();
             let dimensions = self.current_dimensions.clone();
             threads.push(thread::spawn(move || { // nesting to infinity
@@ -443,6 +705,25 @@ impl Visualiser {
                                 let colour = escape_time(diverge_num, &pallete);
                                 colour_3d(t, colour)
                             },
+                            RenderMode::OrbitTrap(ref trap) => {
+                                let trapped_i = diverges_orbit_trap(z, max_iterations, trap);
+                                escape_time(trapped_i, &pallete)
+                            },
+                            RenderMode::OrbitTrap3D(ref trap) => {
+                                let (t, trapped_i) = diverges_orbit_trap_3d(z, max_iterations, trap);
+                                let colour = escape_time(trapped_i, &pallete);
+                                colour_3d(t, colour)
+                            },
+                            RenderMode::OrbitTrap3DColoured(ref trap) => {
+                                let (t, trapped_i, diverge_num) = diverges_orbit_trap_3d_coloured(z, max_iterations, trap);
+                                // trap colour used to represent shading
+                                let trap_colour = escape_time(trapped_i, &trap_pallete);
+                                let norm_colour = escape_time(diverge_num, &pallete);
+                                
+                                // 1-r => white = colour, black = black
+                                let colour = interpolate_colour(norm_colour, BLACK, 1.0-trap_colour.r);
+                                colour_3d(t, colour)
+                            }
                             RenderMode::Julia(ref seed) => {
                                 let diverge_num = diverges_julia(z, max_iterations, seed);
                                 escape_time(diverge_num, &pallete)
@@ -476,10 +757,26 @@ impl Visualiser {
                 *colour
             );
         }
+        for (i, colour) in self.trap_pallete.iter().enumerate() {
+            draw_rectangle(
+                i as f32 * size, 
+                10., 
+                size, 
+                10., 
+                *colour
+            );
+        }
 
         draw_text(
-            &get_fps().to_string(), 
+            &get_fps().to_string(),
             10., 
+            10., 
+            20., 
+            BLACK
+        );
+        draw_text(
+            &self.max_iterations.to_string(),
+            self.current_dimensions.x as f32 - 50., 
             10., 
             20., 
             BLACK
@@ -528,6 +825,20 @@ impl Visualiser {
         zoomed
     }
 
+    fn get_max_iteration_index_higher(&self) -> usize {
+        let mut higher = 0;
+        for (i, max_iteration) in MAX_ITERATION_STEPS.iter().enumerate() {
+            if *max_iteration > self.max_iterations {
+                higher = i;
+                break;
+            }
+            if i == MAX_ITERATION_STEPS.len()-1 {
+                higher = MAX_ITERATION_STEPS.len();
+            }
+        } 
+        higher
+    }
+
     /// lets the user increase/decrease the max iterations
     /// 
     /// returns whether the max iterations has changed or not
@@ -539,6 +850,29 @@ impl Visualiser {
             (false, true) => 1.0,
             _ => {iter = false; 0.0}
         };
+
+        self.max_iterations = match (is_key_pressed(KeyCode::Minus), is_key_pressed(KeyCode::Equal)) {
+            (true, false) => {
+                iter = true;
+                let higher = self.get_max_iteration_index_higher();
+                if higher <= 1 {self.max_iterations}
+                else {MAX_ITERATION_STEPS[higher-2]}
+            }
+            (false, true) => {
+                iter = true;
+                let higher = self.get_max_iteration_index_higher();
+                if higher == MAX_ITERATION_STEPS.len() {self.max_iterations}
+                else {MAX_ITERATION_STEPS[higher]}
+            }
+            _ => self.max_iterations
+        };
+
+        if iter {
+            let colour_map = COLOUR_MAP.to_vec();
+            self.pallete = self.make_pallete(&colour_map, self.pallete_length);
+            let colour_map = TRAP_MAP.to_vec();
+            self.trap_pallete = self.make_pallete(&colour_map, 1000.0);
+        }
 
         iter
     }
@@ -557,7 +891,8 @@ impl Visualiser {
         if pallete {
             self.pallete_length = self.pallete_length.min(1000.);
             self.pallete_length = self.pallete_length.max(0.);
-            self.make_pallete();
+            let colour_map = COLOUR_MAP.to_vec();
+            self.pallete = self.make_pallete(&colour_map, self.pallete_length);
         }
 
         pallete
