@@ -20,6 +20,24 @@ use macroquad::prelude::*;
 //     WHITE,
 //     BLACK
 // ];
+// pub const COLOUR_MAP: [Color; 3] = [
+//     WHITE,
+//     BLACK,
+//     WHITE
+// ];
+// pub const COLOUR_MAP: [Color; 11] = [
+//     WHITE,
+//     WHITE,
+//     WHITE,
+//     WHITE,
+//     WHITE,
+//     Color { r: 0.0, g: 0.686, b: 1.0, a: 1.0},
+//     DARKBLUE,
+//     DARKBLUE,
+//     DARKBLUE,
+//     Color { r: 0.0, g: 0.686, b: 1.0, a: 1.0},
+//     WHITE,
+// ];
 // pub const COLOUR_MAP: [Color; 5] = [
 //     WHITE,
 //     PINK,
@@ -59,3 +77,12 @@ pub const COLOUR_MAP: [Color; 10] = [
 //     BLUE,
 //     WHITE
 // ];
+// pub const COLOUR_MAP: [Color; 2] = [
+//     BLACK,
+//     WHITE
+// ];
+
+pub const TRAP_MAP: [Color; 2] = [
+    BLACK,
+    WHITE,
+];
