@@ -12,3 +12,5 @@ opt-level = 3
 macroquad = "0.3.25"
 rand = "0.8.5"
 chrono = "0.4.24"
+astro-float = "0.6.7"
+threadpool = "1.0"
