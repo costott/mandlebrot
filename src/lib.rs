@@ -6,11 +6,14 @@ use std::f64::consts::PI;
 use std::slice::Iter;
 use std::fs;
 use ::rand::Rng;
+use threadpool::ThreadPool;
 
 pub mod complex;
 use complex::Complex;
-mod palletes;
-use palletes::{COLOUR_MAP, TRAP_MAP};
+use complex::BigComplex;
+pub mod palletes;
+pub mod layers;
+use layers::{Layers, LayerType};
 
 // width+height only used for the buhddabrot
 pub const WIDTH: usize = 600;
@@ -26,7 +29,7 @@ pub const ANGLE: f64 = -45.;
 pub const BAILOUT_3D: f64 = 10000.;
 
 // orbit trap
-pub const BAILOUT_ORBIT_TRAP: f64 = 25.0;
+pub const BAILOUT_ORBIT_TRAP: f64 = 50.0;
 
 // user changing view
 pub const ZOOM_PERCENT_INC: f64 = 0.5f64;
@@ -35,7 +38,8 @@ pub const PALLETE_LENGTH_INC_SPEED: f32 = 50f32;
 
 pub const THREADS: usize = 15; //12 14 15 17
 
-pub const START_PALLETE_LENGTH: f32 = 1000.0;//153.173;//250.;
+pub const START_PALLETE_LENGTH: f32 = 153.173;//250.;
+pub const START_PALLETE_2_LENGTH: f32 = 18.0;
 
 pub const MAX_ITERATION_STEPS: [f32; 5] = [250.0, 500.0, 1000.0, 2500.0, 5000.0];
 
@@ -55,7 +59,7 @@ pub mod orbit_trap {
 
     use super::complex::Complex;
 
-    #[derive(Clone)]
+    #[derive(Clone, Copy)]
     pub struct OrbitTrapPoint {
         point: Complex
     }
@@ -73,11 +77,11 @@ pub mod orbit_trap {
         /// returns the maximum possible distance
         /// a complex number can be from the trap
         pub fn greatest_distance2(&self) -> f64 {
-            BAILOUT_ORBIT_TRAP.sqrt() + self.point.abs_squared().sqrt()
+            (BAILOUT_ORBIT_TRAP.sqrt() + self.point.abs_squared().sqrt()).powi(2)
         }
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Copy)]
     pub struct OrbitTrapCross {
         centre: Complex,
         arm_length: f64
@@ -117,11 +121,11 @@ pub mod orbit_trap {
         /// returns the maximum possible distance
         /// a complex number can be from the trap
         pub fn greatest_distance2(&self) -> f64 {
-            BAILOUT_ORBIT_TRAP.sqrt() + self.centre.abs_squared().sqrt()
+            (BAILOUT_ORBIT_TRAP.sqrt() + self.centre.abs_squared().sqrt()).powi(2)
         }
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Copy)]
     pub struct OrbitTrapCircle {
         centre: Complex,
         pub radius: f64
@@ -147,58 +151,45 @@ pub mod orbit_trap {
             f64::max(
                 big_rad - (self.radius - self.centre.abs_squared().sqrt()), 
                 self.radius
-            )
+            ).powi(2)
+        }
+
+        /// minimum possible distance a point can be from the trap
+        pub fn minimum_distance2(&self) -> f64 {
+            // smallest distance between radius of trap and bailout
+            let circle_distance = (self.radius - self.centre.abs_squared().sqrt()) - BAILOUT_ORBIT_TRAP.sqrt();
+            f64::max(0.0, circle_distance).powi(2)
         }
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Copy)]
     pub enum OrbitTrapType {
         Point(OrbitTrapPoint),
         Cross(OrbitTrapCross),
         Circle(OrbitTrapCircle)
     }
+    impl OrbitTrapType {
+        /// returns the greatest possible distance squared of a point to the trap
+        pub fn greatest_distance2(&self) -> f64 {
+            match self {
+                OrbitTrapType::Point(point) => point.greatest_distance2(),
+                OrbitTrapType::Cross(cross) => cross.greatest_distance2(),
+                OrbitTrapType::Circle(circle) => circle.greatest_distance2()
+            }
+        }
+        
+        /// returns the distance squared between the given complex number and trap
+        pub fn distance2(&self, z: Complex) -> f64 {
+            match self {
+                OrbitTrapType::Point(point) => point.distance2(z),
+                OrbitTrapType::Cross(cross) => cross.distance2(z),
+                OrbitTrapType::Circle(circle) => circle.distance2(z)
+            }
+        }
+    }
 }
 
 use orbit_trap::*;
-
-#[derive(Clone)]
-pub enum RenderMode {
-    ColouredFlat,
-    ColouredFlatDerivatived,
-    Greyscale3D,
-    Coloured3D,
-    Greyscale3DVariated,
-    OrbitTrap(OrbitTrapType),
-    OrbitTrap3D(OrbitTrapType),
-    OrbitTrap3DColoured(OrbitTrapType),
-    Julia(JuliaSeed)
-}
-impl RenderMode {
-    /// provides an iterator for the render modes
-    /// used when generating images
-    pub fn iter_image() -> Iter<'static, RenderMode> {
-        static RENDERMODES: [RenderMode; 3] = [
-            RenderMode::ColouredFlat,
-            RenderMode::Coloured3D,
-            RenderMode::Greyscale3DVariated
-        ];
-        RENDERMODES.iter()
-    }
-
-    pub fn as_string(render_mode: &RenderMode) -> String {
-        String::from( match render_mode {
-            RenderMode::ColouredFlat => "ColouredFlat", 
-            RenderMode::ColouredFlatDerivatived => "ColouredFlatDerivatived", 
-            RenderMode::Greyscale3D => "Greyscale3D", 
-            RenderMode::Coloured3D => "Coloured3D",
-            RenderMode::Greyscale3DVariated => "Greyscale3DVariated",
-            RenderMode::OrbitTrap(_) => "OrbitTrap",
-            RenderMode::OrbitTrap3D(_) => "OrbitTrap3D",
-            RenderMode::OrbitTrap3DColoured(_) => "OrbitTrap3DColoured",
-            RenderMode::Julia(_) => "Julia"
-        })
-    }
-}
 
 #[derive(Clone)]
 pub struct ScreenDimensions {
@@ -397,7 +388,6 @@ fn diverges_orbit_trap(c: Complex, max_iterations: u32, trap: &OrbitTrapType) ->
         }
         if z.abs_squared() > BAILOUT_ORBIT_TRAP {
             // convert min trap distance as if working with max iterations
-            // min_trap_distance2.sqrt() / divisor
             return min_trap_distance2.sqrt() / divisor;
         }  
         z = z.square() + c;
@@ -455,22 +445,14 @@ fn diverges_orbit_trap_3d_coloured(c: Complex, max_iterations: u32, trap: &Orbit
         f64::cos(ANGLE * (PI / 180.)),
         f64::sin(ANGLE * (PI / 180.))
     );
-    let mut min_trap_distance2 = match trap {
-        OrbitTrapType::Point(point) => point.greatest_distance2(),
-        OrbitTrapType::Cross(cross) => cross.greatest_distance2(),
-        OrbitTrapType::Circle(circle) => circle.greatest_distance2()
-    };
+    let mut min_trap_distance2 = trap.greatest_distance2();
     let divisor = min_trap_distance2.sqrt() / max_iterations as f64;
     let mut z = c;
     let dc = Complex::new(1., 0.);
     let mut der = dc;
     
     for i in 0..max_iterations {
-        let z_trap_distance2 = match trap {
-            OrbitTrapType::Point(point) => point.distance2(z),
-            OrbitTrapType::Cross(cross) => cross.distance2(z),
-            OrbitTrapType::Circle(circle) => circle.distance2(z)
-        };
+        let z_trap_distance2 = trap.distance2(z);
         if z_trap_distance2 < min_trap_distance2 {
             min_trap_distance2 = z_trap_distance2;
         }
@@ -541,7 +523,7 @@ fn escape_time(diverge_num: f64, pallete: &Vec<Color>) -> Color {
 }
 
 fn colour_3d(t: f64, colour: Color) -> Color {
-    if t == 0. {
+    if t == 0. { // in set
         // return Color::from_rgba(201, 30, 119, 255);
         // return interpolate_colour(BLACK, BLUE, 0.35);
         return BLACK;
@@ -566,6 +548,39 @@ fn complex_to_screen(dimensions: ScreenDimensions, pixel_step: f64, center: (f64
     Some((x as usize, y as usize))
 }
 
+// TODO: arbitrary precision when deep zoom
+enum ComplexType {
+    Double,
+    Big
+} 
+
+struct RenderInfo {
+    dimensions: ScreenDimensions,
+    start_y: usize,
+    thread_height: usize,
+    center: (f64, f64),
+    pixel_step: f64,
+    max_iterations: u32,
+    image: Arc<Mutex<Image>>,
+    layers: Layers
+}
+
+fn render_image(info: RenderInfo) {
+    for x in 0..info.dimensions.x {
+        for y in info.start_y..info.start_y+info.thread_height {
+            let z = Complex::new(
+                (info.center.0 - info.dimensions.x as f64/2.0 * info.pixel_step) + x as f64 * info.pixel_step, 
+                (info.center.1 - info.dimensions.y as f64/2.0 * info.pixel_step) + y as f64 * info.pixel_step,
+            );
+            // let colour: Color = colour_pixel(&info, z);
+            let colour: Color = info.layers.colour_pixel(z, info.max_iterations);
+        
+            let mut im = info.image.lock().unwrap();
+            im.set_pixel(x as u32, y as u32, colour);
+        }
+    }
+}
+
 pub struct Visualiser {
     view_dimensions: ScreenDimensions,
     screenshot_dimensions: ScreenDimensions,
@@ -573,23 +588,21 @@ pub struct Visualiser {
     center: (f64, f64),
     pixel_step: f64,
     max_iterations: f32,
-    render_mode: RenderMode,
+    thread_pool: ThreadPool,
+    layers: Layers,
     image: Arc<Mutex<Image>>,
     texture: Texture2D, 
     move_speed: f64,
-    pallete: Vec<Color>,
-    trap_pallete: Vec<Color>,
-    pallete_length: f32
 }
 impl Visualiser {
     pub fn new(
         pixel_step: f64, 
         max_iterations: f32, 
-        render_mode: RenderMode,
         view_dimensions: (usize, usize),
-        screenshot_dimensions: (usize, usize)
+        screenshot_dimensions: (usize, usize),
+        layers: Layers
     ) -> Visualiser {
-        Visualiser { pixel_step, max_iterations, render_mode, 
+        Visualiser { pixel_step, max_iterations, layers,
             view_dimensions: ScreenDimensions::from_tuple(view_dimensions), 
             screenshot_dimensions: ScreenDimensions::from_tuple(screenshot_dimensions),
             current_dimensions: ScreenDimensions::from_tuple(view_dimensions),
@@ -600,8 +613,7 @@ impl Visualiser {
             ))),
             texture: Texture2D::empty(),
             move_speed: 1f64, 
-            pallete: Vec::new(), pallete_length: START_PALLETE_LENGTH,
-            trap_pallete: Vec::new()
+            thread_pool: ThreadPool::new(THREADS)
         }
     }
 
@@ -612,133 +624,28 @@ impl Visualiser {
         self.move_speed *= pixel_step / 0.005;
     }
 
-    /// world index goes from 0 -> len of colour map
-    fn i_to_world_index(&self, i: u32, colour_map: &Vec<Color>, length: f32) -> f32 {
-        (i as f32 / self.max_iterations) * (1000. / length) * (colour_map.len()-1) as f32
-    }
-
-    fn world_index_to_i(&self, world_index: f32, colour_map: &Vec<Color>, length: f32) -> u32 {
-        (world_index * (1. / (colour_map.len()-1) as f32) * (length / 1000.) * self.max_iterations).floor() as u32
-    }
-
-    fn make_pallete(&mut self, colour_map: &Vec<Color>, length: f32) -> Vec<Color> {
-        let mut pallete = Vec::with_capacity(self.max_iterations as usize);
-
-        for i in 0..=self.max_iterations as u32 {
-            let world_index = self.i_to_world_index(i, colour_map, length);
-            let lower_world_index = world_index.floor();
-            let mut colour_index = world_index.floor() as usize % (colour_map.len()-1);
-            
-            // fix situation where last colour represents the start (0) instead of end 
-            // because of the modulus
-            if world_index as usize == colour_map.len()-1 && i == self.max_iterations as u32 {
-                colour_index = colour_map.len()-1;
-            }
-
-            let lower = colour_map[colour_index];
-            // UNCOMMENT IF FIRST COLOUR SHOULD BE A DIFFERENT COLOUR TO THE SCHEME
-            // if world_index < (COLOUR_MAP.len()-1) as f32 && colour_index == 0 {
-            //     lower = BLACK;
-            // }
-            let lower_i = self.world_index_to_i(lower_world_index, colour_map, length);
-            let upper = colour_map[(colour_index+1).min(colour_map.len()-1)];
-            let upper_i = self.world_index_to_i(lower_world_index+1., colour_map, length);
-
-            let inner_fraction = (i-lower_i) as f32 / (upper_i-lower_i) as f32;
-
-            pallete.push(interpolate_colour(lower, upper, inner_fraction));
-        }
-
-        pallete
-    }
-
     /// generates and stores the mandlebrot image
     /// for the current parameters
     pub fn generate_image(&mut self) {
-        if self.pallete.len() != self.max_iterations as usize {
-            let colour_map = COLOUR_MAP.to_vec();
-            self.pallete = self.make_pallete(&colour_map, self.pallete_length);
-        }
-        if self.trap_pallete.len() != self.max_iterations as usize {
-            let colour_map = TRAP_MAP.to_vec();
-            self.trap_pallete = self.make_pallete(&colour_map, 1000.0);
-        }
+        self.layers.generate_palletes(self.max_iterations);
         
         let thread_height = self.current_dimensions.y / THREADS;
-        let mut threads = Vec::with_capacity(THREADS);
         for t in 0..THREADS {
-            let start_y = t*thread_height;
-            let center = self.center.clone();
-            let pixel_step = self.pixel_step.clone();
-            let max_iterations = self.max_iterations.clone() as u32;
-            let image = Arc::clone(&self.image);
-            let pallete = self.pallete.clone();
-            let trap_pallete = self.trap_pallete.clone();
-            let render_mode = self.render_mode.clone();
-            let dimensions = self.current_dimensions.clone();
-            threads.push(thread::spawn(move || { // nesting to infinity
-                for x in 0..dimensions.x {
-                    for y in start_y..start_y+thread_height {
-                        let z = Complex::new(
-                            (center.0 - dimensions.x as f64/2.0 * pixel_step) + x as f64 * pixel_step, 
-                            (center.1 - dimensions.y as f64/2.0 * pixel_step) + y as f64 * pixel_step,
-                        );
-                        let colour: Color = match render_mode {
-                            RenderMode::ColouredFlat => {
-                                let diverge_num = diverges(z, max_iterations);
-                                escape_time(diverge_num, &pallete)
-                            },
-                            RenderMode::ColouredFlatDerivatived => {
-                                let diverge_num = diverges_der(z, max_iterations);
-                                escape_time(diverge_num, &pallete)
-                            }, 
-                            RenderMode::Greyscale3D => {
-                                let t = diverges_3d(z, max_iterations);
-                                colour_3d(t, WHITE)
-                            },
-                            RenderMode::Greyscale3DVariated => {
-                                let t = diverges_3d_variated(z, max_iterations);
-                                colour_3d(t, WHITE)
-                            }
-                            RenderMode::Coloured3D => {
-                                let (t, diverge_num) = diverges_3d_coloured(z, max_iterations);
-                                let colour = escape_time(diverge_num, &pallete);
-                                colour_3d(t, colour)
-                            },
-                            RenderMode::OrbitTrap(ref trap) => {
-                                let trapped_i = diverges_orbit_trap(z, max_iterations, trap);
-                                escape_time(trapped_i, &pallete)
-                            },
-                            RenderMode::OrbitTrap3D(ref trap) => {
-                                let (t, trapped_i) = diverges_orbit_trap_3d(z, max_iterations, trap);
-                                let colour = escape_time(trapped_i, &pallete);
-                                colour_3d(t, colour)
-                            },
-                            RenderMode::OrbitTrap3DColoured(ref trap) => {
-                                let (t, trapped_i, diverge_num) = diverges_orbit_trap_3d_coloured(z, max_iterations, trap);
-                                // trap colour used to represent shading
-                                let trap_colour = escape_time(trapped_i, &trap_pallete);
-                                let norm_colour = escape_time(diverge_num, &pallete);
-                                
-                                // 1-r => white = colour, black = black
-                                let colour = interpolate_colour(norm_colour, BLACK, 1.0-trap_colour.r);
-                                colour_3d(t, colour)
-                            }
-                            RenderMode::Julia(ref seed) => {
-                                let diverge_num = diverges_julia(z, max_iterations, seed);
-                                escape_time(diverge_num, &pallete)
-                            }
-                        };
-                        
-                        let mut im = image.lock().unwrap();
-                        im.set_pixel(x as u32, y as u32, colour);
-                    }
-                }
-            }));
+            let render_info = RenderInfo {
+                dimensions: self.current_dimensions.clone(),
+                start_y: t * thread_height,
+                thread_height,
+                center: self.center.clone(),
+                pixel_step: self.pixel_step.clone(),
+                max_iterations: self.max_iterations.clone() as u32,
+                image: Arc::clone(&self.image),
+                layers: self.layers.clone()
+            };
+            self.thread_pool.execute(move || {
+                render_image(render_info)
+            });
         }
-        for thread in threads {
-            thread.join().unwrap();
-        }
+        self.thread_pool.join();
 
         self.texture = Texture2D::from_image(&self.image.clone().lock().unwrap());
     }
@@ -746,25 +653,24 @@ impl Visualiser {
     /// draw a generated image to the screen
     pub fn draw(&self) {
         draw_texture(self.texture, 0.0, 0.0, WHITE);
-
-        let size = self.current_dimensions.x as f32 / self.pallete.len() as f32;
-        for (i, colour) in self.pallete.iter().enumerate() {
-            draw_rectangle(
-                i as f32 * size, 
-                0., 
-                size, 
-                10., 
-                *colour
-            );
-        }
-        for (i, colour) in self.trap_pallete.iter().enumerate() {
-            draw_rectangle(
-                i as f32 * size, 
-                10., 
-                size, 
-                10., 
-                *colour
-            );
+        
+        let mut l = 0.0;
+        for layer in self.layers.layers.iter() {
+            match layer.layer_type {
+                LayerType::Colour | LayerType::ColourOrbitTrap(_) => {},
+                _ => {continue}
+            }
+            let size = self.current_dimensions.x as f32 / layer.pallete.len() as f32;
+            for (i, colour) in layer.pallete.iter().enumerate() {
+                draw_rectangle(
+                    i as f32 * size, 
+                    l * 10., 
+                    size, 
+                    10., 
+                    *colour
+                );
+            }
+            l += 1.0;
         }
 
         draw_text(
@@ -867,35 +773,33 @@ impl Visualiser {
             _ => self.max_iterations
         };
 
-        if iter {
-            let colour_map = COLOUR_MAP.to_vec();
-            self.pallete = self.make_pallete(&colour_map, self.pallete_length);
-            let colour_map = TRAP_MAP.to_vec();
-            self.trap_pallete = self.make_pallete(&colour_map, 1000.0);
-        }
-
         iter
     }
 
-    /// lets the user shitf the pallete length
+    /// lets the user shift the pallete length
     /// 
     /// returns if the pallete has been changed or not
     fn user_shift_pallete(&mut self, dt: f64) -> bool {
         let mut pallete = true;
 
-        self.pallete_length += PALLETE_LENGTH_INC_SPEED * dt as f32 * match (is_key_down(KeyCode::I), is_key_down(KeyCode::P)) {
+        let add = PALLETE_LENGTH_INC_SPEED * dt as f32 * match (is_key_down(KeyCode::I), is_key_down(KeyCode::P)) {
             (true, false) => -1.0,
             (false, true) => 1.0,
             _ => {pallete = false; 0.0}
         };
-        if pallete {
-            self.pallete_length = self.pallete_length.min(1000.);
-            self.pallete_length = self.pallete_length.max(0.);
-            let colour_map = COLOUR_MAP.to_vec();
-            self.pallete = self.make_pallete(&colour_map, self.pallete_length);
+
+        if !pallete {return false}
+
+        for layer in self.layers.layers.iter_mut() {
+            match layer.layer_type {
+                LayerType::Colour | LayerType::ColourOrbitTrap(_) => {
+                    layer.change_pallete_length(add, self.max_iterations);
+                },
+                _ => {continue}
+            }
         }
 
-        pallete
+        true
     }
 
     /// lets the user teleport back to the top of the set
@@ -925,9 +829,7 @@ impl Visualiser {
         let fmt = StrftimeItems::new("%Y%m%d_%H_%M_%S");
         let image_name = format!["{}_{}", datetime.format_with_items(fmt.clone()), self.screenshot_dimensions.as_string()];
         images_path.push(image_name.clone());
-        fs::create_dir(&images_path).unwrap();
-
-        let old_render_mode = self.render_mode.clone();
+        // fs::create_dir(&images_path).unwrap();
 
         // change dimensions and pixel step for higher quality
         let old_pixel_step = self.pixel_step.clone();
@@ -939,18 +841,12 @@ impl Visualiser {
                                    Color::new(0.0, 0.0, 0.0, 1.0)
         )));
 
-        for render_mode in RenderMode::iter_image() {
-            self.render_mode = render_mode.clone();
-            self.generate_image();
-            
-            let path = &format!["images/{}/{}.png",
-                image_name.clone(),
-                RenderMode::as_string(render_mode)
-            ];
-            self.image.clone().lock().unwrap().export_png(path);
-        }
+        self.generate_image();
+        let path = &format!["images/{}.png",
+            image_name.clone()
+        ];
+        self.image.clone().lock().unwrap().export_png(path);
 
-        self.render_mode = old_render_mode;
         self.pixel_step = old_pixel_step;
         self.current_dimensions = self.view_dimensions.clone();
         self.image = Arc::new(Mutex::new(
@@ -961,7 +857,7 @@ impl Visualiser {
         self.generate_image();
     }
 
-    /// lets the user move the view
+    /// lets the user change the view
     pub fn user_move(&mut self) {
         let dt = get_frame_time() as f64;
 
@@ -972,8 +868,8 @@ impl Visualiser {
         let tp = self.user_teleport();
 
         if is_key_pressed(KeyCode::Z) {
-            println!("{} {} = {}x zoom\n{:?}\n{}", 
-                self.max_iterations, self.pixel_step, 0.005/self.pixel_step, self.center, self.pallete_length);
+            println!("{} {} = {}x zoom\n{:?}", 
+                self.max_iterations, self.pixel_step, 0.005/self.pixel_step, self.center);
         }
         self.user_export();   
     
@@ -982,7 +878,7 @@ impl Visualiser {
         }
     }
 
-    /// automatically zooms into the center
+    /// automatically zooms into the centre
     /// speed = percentage increase in zoom per second
     pub fn play(&mut self, speed: f64) {
         let dt = get_frame_time() as f64;
