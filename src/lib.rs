@@ -1,19 +1,27 @@
+// © 2023 costott. All rights reserved. 
+// This code is provided for viewing purposes only. Copying, reproduction, 
+// or distribution of this code, in whole or in part, in any form or by any 
+// means, is strictly prohibited without prior written permission from the 
+// copyright owner.
+
 use macroquad::prelude::*;
 use chrono::format::strftime::StrftimeItems;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::thread;
+use std::time::Instant;
 use std::f64::consts::PI;
-use std::slice::Iter;
 use std::fs;
 use ::rand::Rng;
 use threadpool::ThreadPool;
+use dashu_float::FBig;
 
 pub mod complex;
-use complex::Complex;
-use complex::BigComplex;
+use complex::*;
 pub mod palletes;
 pub mod layers;
 use layers::{Layers, LayerType};
+mod menu;
+use menu::Menu;
 
 // width+height only used for the buhddabrot
 pub const WIDTH: usize = 600;
@@ -29,19 +37,47 @@ pub const ANGLE: f64 = -45.;
 pub const BAILOUT_3D: f64 = 10000.;
 
 // orbit trap
-pub const BAILOUT_ORBIT_TRAP: f64 = 50.0;
+pub const BAILOUT_ORBIT_TRAP: f64 = 20.0;
 
 // user changing view
-pub const ZOOM_PERCENT_INC: f64 = 0.5f64;
+pub const ZOOM_PERCENT_INC: f64 = 2.0;//0.5f64;
 pub const MAX_ITER_INC_SPEED: f32 = 10f32;
 pub const PALLETE_LENGTH_INC_SPEED: f32 = 50f32;
 
-pub const THREADS: usize = 15; //12 14 15 17
+pub const THREADS: usize = 5;//15; //12 14 15 17
 
-pub const START_PALLETE_LENGTH: f32 = 153.173;//250.;
-pub const START_PALLETE_2_LENGTH: f32 = 18.0;
+pub const MIN_FPS: usize = 10;
+/// extra fps that must be exceeded before the pixel size decreases
+pub const FPS_DROP_EXCESS: usize = (MIN_FPS as f32 * 0.75) as usize;
+pub const MAX_QUALITY: usize = 50;
 
-pub const MAX_ITERATION_STEPS: [f32; 5] = [250.0, 500.0, 1000.0, 2500.0, 5000.0];
+pub const MAX_ITERATION_STEPS: [f32; 6] = [250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0];
+
+pub struct App {
+    visualiser: Visualiser,
+    menu: Menu
+}
+impl App {
+    pub async fn new(visualiser: Visualiser) -> App {
+        App { visualiser , menu: Menu::new().await }
+    }
+
+    pub async fn run(&mut self) {
+        let now = Instant::now();
+        self.visualiser.generate_image();
+        println!("Took {} seconds to generate",  now.elapsed().as_secs_f32());
+        self.visualiser.user_move();
+
+        loop {
+            self.visualiser.draw();
+            self.visualiser.user_move();
+
+            self.menu.update(&mut self.visualiser);
+
+            next_frame().await;
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct JuliaSeed {
@@ -55,48 +91,103 @@ impl JuliaSeed {
 }
 
 pub mod orbit_trap {
+    use std::f64::consts::PI;
+
     use crate::BAILOUT_ORBIT_TRAP;
 
-    use super::complex::Complex;
+    use super::complex::*;
 
     #[derive(Clone, Copy)]
+    pub enum OrbitTrapAnalysis {
+        Distance,
+        Real,
+        Imaginary,
+        Angle
+    }
+
+    #[derive(Clone)]
     pub struct OrbitTrapPoint {
-        point: Complex
+        point: Complex,
+        big_point: BigComplex,
+        analysis: OrbitTrapAnalysis
     }
     impl OrbitTrapPoint {
-        pub fn new(point: (f64, f64)) -> OrbitTrapPoint {
-            OrbitTrapPoint { point: Complex::new(point.0, point.1) }
+        pub fn new(point: (f64, f64), analysis: OrbitTrapAnalysis) -> OrbitTrapPoint {
+            OrbitTrapPoint { 
+                point: Complex::new(point.0, point.1), 
+                big_point: BigComplex::from_f64s(point.0, point.1),
+                analysis 
+            }
+        }
+
+        /// returns a vector of the given complex number to the point
+        fn vector(&self, z: ComplexType) -> ComplexType {
+            match z {
+                ComplexType::Double(c) => ComplexType::Double(c - self.point),
+                ComplexType::Big(c) => ComplexType::Big(c - self.big_point.clone())
+            }
         }
 
         /// returns the distance squared between the 
         /// given complex number and the point trap
-        pub fn distance2(&self, z: Complex) -> f64 {
-            (z-self.point).abs_squared()
+        pub fn distance2(&self, z: ComplexType) -> f64 {
+            // match self.analysis {
+            //     OrbitTrapAnalysis::Distance => (z-self.point).abs_squared(),
+            //     OrbitTrapAnalysis::Real => (z.real-self.point.real).abs(),
+            //     OrbitTrapAnalysis::Imaginary => (z.im-self.point.im).powi(2)
+            // }
+            match z {
+                ComplexType::Double(c) => (c-self.point).abs_squared(),
+                ComplexType::Big(c) => (c-self.big_point.clone()).abs_squared()
+            }
         }
 
         /// returns the maximum possible distance
         /// a complex number can be from the trap
         pub fn greatest_distance2(&self) -> f64 {
-            (BAILOUT_ORBIT_TRAP.sqrt() + self.point.abs_squared().sqrt()).powi(2)
+            let big_rad = BAILOUT_ORBIT_TRAP.sqrt();
+            match self.analysis {
+                OrbitTrapAnalysis::Distance => (big_rad + self.point.abs_squared().sqrt()).powi(2),
+                OrbitTrapAnalysis::Real => (big_rad + self.point.real.abs()).powi(2),
+                OrbitTrapAnalysis::Imaginary => (big_rad + self.point.im.abs()).powi(2),
+                OrbitTrapAnalysis::Angle => (2.*PI).powi(2)
+            }
+            // (big_rad + self.point.abs_squared().sqrt()).powi(2)
         }
     }
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone)]
     pub struct OrbitTrapCross {
         centre: Complex,
-        arm_length: f64
+        big_centre: BigComplex,
+        arm_length: f64,
+        analysis: OrbitTrapAnalysis
     }
     impl OrbitTrapCross {
-        pub fn new(centre: (f64, f64), arm_length: f64) -> OrbitTrapCross {
+        pub fn new(centre: (f64, f64), arm_length: f64, analysis: OrbitTrapAnalysis) -> OrbitTrapCross {
             OrbitTrapCross { 
                 centre: Complex::new(centre.0, centre.1), 
-                arm_length
+                big_centre: BigComplex::from_f64s(centre.0, centre.1),
+                arm_length, analysis
+            }
+        }
+
+        fn vector(&self, z: ComplexType) -> ComplexType {
+            // TODO 
+            match z {
+                ComplexType::Double(_) => ComplexType::Double(Complex::new(0.0, 0.0)),
+                ComplexType::Big(_) => ComplexType::Big(BigComplex::from_f64s(0.0, 0.0))
             }
         }
         
         /// returns the shortest distance squared between the 
         /// given complex number and the cross trap
-        pub fn distance2(&self, z: Complex) -> f64 {
+        pub fn distance2(&self, z: ComplexType) -> f64 {
+            let z = match z {
+                ComplexType::Double(c) => c,
+                ComplexType::Big(c) => c.to_complex()
+            };
+
             let shortest_distance;
             let x_dist = z.real-self.centre.real;
             let x_dist2 = x_dist.powi(2);
@@ -125,23 +216,38 @@ pub mod orbit_trap {
         }
     }
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone)]
     pub struct OrbitTrapCircle {
         centre: Complex,
-        pub radius: f64
+        big_centre: BigComplex,
+        pub radius: f64,
+        analysis: OrbitTrapAnalysis
     }
     impl OrbitTrapCircle {
-        pub fn new(centre: (f64, f64), radius: f64) -> OrbitTrapCircle {
+        pub fn new(centre: (f64, f64), radius: f64, analysis: OrbitTrapAnalysis) -> OrbitTrapCircle {
             OrbitTrapCircle { 
                 centre: Complex::new(centre.0, centre.1), 
-                radius
+                big_centre: BigComplex::from_f64s(centre.0, centre.1),
+                radius, analysis
+            }
+        }
+
+        /// returns the smallest vector of the given complex number to the circle
+        fn vector(&self, z: ComplexType) -> ComplexType {
+            // TODO 
+            match z {
+                ComplexType::Double(_) => ComplexType::Double(Complex::new(0.0, 0.0)),
+                ComplexType::Big(_) => ComplexType::Big(BigComplex::from_f64s(0.0, 0.0))
             }
         }
 
         /// returns the shortest distance between the 
         /// given complex number and the circle trap
-        pub fn distance2(&self, z: Complex) -> f64 {
-            ((z-self.centre).abs_squared().sqrt() - self.radius).powi(2)
+        pub fn distance2(&self, z: ComplexType) -> f64 {
+            (match z {
+                ComplexType::Double(c) => (c-self.centre).abs_squared(),
+                ComplexType::Big(c) => (c-self.big_centre.clone()).abs_squared()
+            }.sqrt() - self.radius).powi(2)
         }
 
         /// returns the maximum possible distance
@@ -162,7 +268,7 @@ pub mod orbit_trap {
         }
     }
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone)]
     pub enum OrbitTrapType {
         Point(OrbitTrapPoint),
         Cross(OrbitTrapCross),
@@ -177,13 +283,29 @@ pub mod orbit_trap {
                 OrbitTrapType::Circle(circle) => circle.greatest_distance2()
             }
         }
+
+        pub fn vector(&self, z: ComplexType) -> ComplexType {
+            match self {
+                OrbitTrapType::Point(point) => point.vector(z),
+                OrbitTrapType::Cross(cross) => cross.vector(z),
+                OrbitTrapType::Circle(circle) => circle.vector(z)
+            }
+        }
         
         /// returns the distance squared between the given complex number and trap
-        pub fn distance2(&self, z: Complex) -> f64 {
+        pub fn distance2(&self, z: ComplexType) -> f64 {
             match self {
                 OrbitTrapType::Point(point) => point.distance2(z),
                 OrbitTrapType::Cross(cross) => cross.distance2(z),
                 OrbitTrapType::Circle(circle) => circle.distance2(z)
+            }
+        }
+
+        pub fn get_analysis(&self) -> OrbitTrapAnalysis {
+            match self {
+                OrbitTrapType::Point(point) => point.analysis,
+                OrbitTrapType::Cross(cross) => cross.analysis,
+                OrbitTrapType::Circle(circle) => circle.analysis
             }
         }
     }
@@ -218,6 +340,13 @@ impl ScreenDimensions {
         (1920, 1080)
     }
 
+    pub fn screen_size() -> ScreenDimensions {
+        ScreenDimensions {
+            x: screen_width() as usize,
+            y: screen_height() as usize
+        }
+    }
+
     /// returns a string representing the dimension
     fn as_string(&self) -> String {
         let res = format!["{}x{}", self.x, self.y];
@@ -244,239 +373,6 @@ fn diverges(c: Complex, max_iterations: u32) -> f64 {
         z = z.square() + c;
     }
     0.0
-}
-
-// DERIVATIVED AND 3D DIVERGENCE THEORY FROM:
-// https://www.math.univ-toulouse.fr/~cheritat/wiki-draw/index.php/Mandelbrot_set#Drawing_algorithms
-
-/// derivatived divergence
-fn diverges_der(c: Complex, max_iterations: u32) -> f64 {
-    let mut z = c;
-    let mut der = Complex::new(1., 0.);
-    for i in 0..max_iterations {
-        if der.abs_squared() < EPSILON {
-            return 0.;
-        }
-        if z.abs_squared() > BAILOUT {
-            let log_zmod = f64::log2(z.abs_squared()) / 2.0;
-            let nu = f64::log2(log_zmod);
-            let smooth_iteration = i as f64 + 1.0 - nu;
-            return smooth_iteration;
-        }  
-        der = der * (z * 2.); // brackets not needed but just to make more sense
-        z = z.square() + c;
-    }
-    0.0
-}
-
-/// 3d divergence
-fn diverges_3d(c: Complex, max_iterations: u32) -> f64 {
-    let v = Complex::new(
-        f64::cos(ANGLE * (PI / 180.)),
-        f64::sin(ANGLE * (PI / 180.))
-    );
-
-    let mut z = c;
-    let dc = Complex::new(1., 0.);
-    let mut der = dc;
-    for _ in 0..max_iterations {
-        if der.abs_squared() < EPSILON {
-            return 0.;
-        }
-        if z.abs_squared() > BAILOUT_3D {
-            let mut u = z / der;
-            u = u / f64::sqrt(u.abs_squared());
-            let mut t = u.real*v.real + u.im*v.im + H2;
-            t = t/(1.+H2);
-            if t < 0. {t = 0.};
-            return t;
-        }  
-        der = der * (z * 2.) + dc; // brackets not needed but just to make more sense
-        z = z.square() + c;
-    }
-    0.0
-}
-
-
-/// 3d divergence, returning t and (smooth) iteration
-fn diverges_3d_coloured(c: Complex, max_iterations: u32) -> (f64, f64) {
-    let v = Complex::new(
-        f64::cos(ANGLE * (PI / 180.)),
-        f64::sin(ANGLE * (PI / 180.))
-    );
-
-    let mut z = c;
-    let dc = Complex::new(1., 0.);
-    let mut der = dc;
-    for i in 0..max_iterations {
-        // UNCOMMENT FOR:
-        // - PERFORMANCE INCREASE FOR POINTS IN THE SET
-        // - PERFORMANCE DECREASE (SLIGHTLY) FOR POINTS OUTSIDE THE SET
-        // if der.abs_squared() < EPSILON {
-        //     // return i as f64;
-        //     return (0., 0.);
-        // }
-        if z.abs_squared() > BAILOUT_3D {
-            let mut u = z / der;
-            u = u / f64::sqrt(u.abs_squared());
-            let mut t = u.real*v.real + u.im*v.im + H2;
-            t = t/(1.+H2);
-            if t < 0. {t = 0.}; 
-            let log_zmod = f64::log2(z.abs_squared()) / 2.0;
-            let nu = f64::log2(log_zmod);
-            let smooth_iteration = i as f64 + 1.0 - nu;
-            return (t, smooth_iteration);
-        }  
-        der = der * (z * 2.) + dc; // brackets not needed but just to make more sense
-        z = z.square() + c;
-    }
-    (0.0, 0.0)
-}
-
-/// 3d divergence
-fn diverges_3d_variated(c: Complex, max_iterations: u32) -> f64 {
-    let v = Complex::new(
-        f64::cos(ANGLE * (PI / 180.)),
-        f64::sin(ANGLE * (PI / 180.))
-    );
-
-    let mut z = c;
-    let dc = Complex::new(1., 0.);
-    let mut der = dc;
-    let mut der2 = Complex::new(0., 0.);
-    for _ in 0..max_iterations {
-        if der.abs_squared() < EPSILON {
-            return 0.;
-        }
-        if z.abs_squared() > BAILOUT_3D {
-            let lo = 0.5 * f64::log10(z.abs_squared());
-            let mut u = z * der * (
-                (der.square()).conjugate()*(1.+lo) 
-                - (z * der2).conjugate() * lo
-            );
-            u = u / f64::sqrt(u.abs_squared());
-            let mut t = u.real*v.real + u.im*v.im + H2;
-            t = t/(1.+H2);
-            if t < 0. {t = 0.};
-            return t;
-        }  
-        der2 = (z*der2+der.square())*2.;
-        der = der * (z * 2.) + dc; // brackets not needed but just to make more sense
-        z = z.square() + c;
-    }
-    0.0
-}
-
-/// orbit trap colouring
-fn diverges_orbit_trap(c: Complex, max_iterations: u32, trap: &OrbitTrapType) -> f64 {
-    let mut min_trap_distance2 = match trap {
-        OrbitTrapType::Point(point) => point.greatest_distance2(),
-        OrbitTrapType::Cross(cross) => cross.greatest_distance2(),
-        OrbitTrapType::Circle(circle) => circle.greatest_distance2()
-    };
-    let divisor = min_trap_distance2.sqrt() / max_iterations as f64;
-    let mut z = c;
-
-    for _ in 0..max_iterations {
-        let z_trap_distance2 = match trap {
-            OrbitTrapType::Point(point) => point.distance2(z),
-            OrbitTrapType::Cross(cross) => cross.distance2(z),
-            OrbitTrapType::Circle(circle) => circle.distance2(z)
-        };
-        if z_trap_distance2 < min_trap_distance2 {
-            min_trap_distance2 = z_trap_distance2;
-        }
-        if z.abs_squared() > BAILOUT_ORBIT_TRAP {
-            // convert min trap distance as if working with max iterations
-            return min_trap_distance2.sqrt() / divisor;
-        }  
-        z = z.square() + c;
-    }
-    
-    0.0
-}
-
-/// orbit trap colouring, returning t and the trapped i
-fn diverges_orbit_trap_3d(c: Complex, max_iterations: u32, trap: &OrbitTrapType) -> (f64, f64) {
-    let v = Complex::new(
-        f64::cos(ANGLE * (PI / 180.)),
-        f64::sin(ANGLE * (PI / 180.))
-    );
-    let mut min_trap_distance2 = match trap {
-        OrbitTrapType::Point(point) => point.greatest_distance2(),
-        OrbitTrapType::Cross(cross) => cross.greatest_distance2(),
-        OrbitTrapType::Circle(circle) => circle.greatest_distance2()
-    };
-    let divisor = min_trap_distance2.sqrt() / max_iterations as f64;
-    let mut z = c;
-    let dc = Complex::new(1., 0.);
-    let mut der = dc;
-    
-    for _ in 0..max_iterations {
-        let z_trap_distance2 = match trap {
-            OrbitTrapType::Point(point) => point.distance2(z),
-            OrbitTrapType::Cross(cross) => cross.distance2(z),
-            OrbitTrapType::Circle(circle) => circle.distance2(z)
-        };
-        if z_trap_distance2 < min_trap_distance2 {
-            min_trap_distance2 = z_trap_distance2;
-        }
-        if z.abs_squared() > BAILOUT_ORBIT_TRAP {
-            let mut u = z / der;
-            u = u / f64::sqrt(u.abs_squared());
-            let mut t = u.real*v.real + u.im*v.im + H2;
-            t = t/(1.+H2);
-            if t < 0. {t = 0.}; 
-
-            // convert min trap distance as if working with max iterations
-            // min_trap_distance2.sqrt() / divisor
-            let trapped_i =  min_trap_distance2.sqrt() / divisor;
-            return (t, trapped_i)
-        }  
-        der = der * (z * 2.) + dc; // brackets not needed but just to make more sense
-        z = z.square() + c;
-    }
-    (0.0, 0.0)
-}
-
-/// orbit trap colouring, returning t, trapped i, and smooth i
-fn diverges_orbit_trap_3d_coloured(c: Complex, max_iterations: u32, trap: &OrbitTrapType) -> (f64, f64, f64) {
-    let v = Complex::new(
-        f64::cos(ANGLE * (PI / 180.)),
-        f64::sin(ANGLE * (PI / 180.))
-    );
-    let mut min_trap_distance2 = trap.greatest_distance2();
-    let divisor = min_trap_distance2.sqrt() / max_iterations as f64;
-    let mut z = c;
-    let dc = Complex::new(1., 0.);
-    let mut der = dc;
-    
-    for i in 0..max_iterations {
-        let z_trap_distance2 = trap.distance2(z);
-        if z_trap_distance2 < min_trap_distance2 {
-            min_trap_distance2 = z_trap_distance2;
-        }
-        if z.abs_squared() > BAILOUT_ORBIT_TRAP {
-            let mut u = z / der;
-            u = u / f64::sqrt(u.abs_squared());
-            let mut t = u.real*v.real + u.im*v.im + H2;
-            t = t/(1.+H2);
-            if t < 0. {t = 0.}; 
-
-            // convert min trap distance as if working with max iterations
-            // min_trap_distance2.sqrt() / divisor
-            let trapped_i =  min_trap_distance2.sqrt() / divisor;
-
-            let log_zmod = f64::log2(z.abs_squared()) / 2.0;
-            let nu = f64::log2(log_zmod);
-            let smooth_iteration = i as f64 + 1.0 - nu;
-
-            return (t, trapped_i, smooth_iteration)
-        }  
-        der = der * (z * 2.) + dc; // brackets not needed but just to make more sense
-        z = z.square() + c;
-    }
-    (0.0, 0.0, 0.0)
 }
 
 // const SEED: Complex = Complex { real: 0.285 , im: 0. };
@@ -548,35 +444,99 @@ fn complex_to_screen(dimensions: ScreenDimensions, pixel_step: f64, center: (f64
     Some((x as usize, y as usize))
 }
 
-// TODO: arbitrary precision when deep zoom
-enum ComplexType {
-    Double,
-    Big
-} 
+struct ThreadSplitter {
+    x_excess: usize,
+    y_excess: usize,
+    x_end: usize, 
+    y_end: usize
+}
 
-struct RenderInfo {
+struct Renderer {
     dimensions: ScreenDimensions,
     start_y: usize,
     thread_height: usize,
-    center: (f64, f64),
+    center: ComplexType,
     pixel_step: f64,
     max_iterations: u32,
     image: Arc<Mutex<Image>>,
-    layers: Layers
+    layers: Layers,
+    quality: usize,
+    thread_cancel: Arc<AtomicBool>
 }
-
-fn render_image(info: RenderInfo) {
-    for x in 0..info.dimensions.x {
-        for y in info.start_y..info.start_y+info.thread_height {
-            let z = Complex::new(
-                (info.center.0 - info.dimensions.x as f64/2.0 * info.pixel_step) + x as f64 * info.pixel_step, 
-                (info.center.1 - info.dimensions.y as f64/2.0 * info.pixel_step) + y as f64 * info.pixel_step,
-            );
-            // let colour: Color = colour_pixel(&info, z);
-            let colour: Color = info.layers.colour_pixel(z, info.max_iterations);
+impl Renderer {
+    fn render_image(self) { 
+        let split = ThreadSplitter {
+            x_excess: self.dimensions.x % self.quality,
+            y_excess: self.thread_height % self.quality,
+            x_end: self.dimensions.x/self.quality,
+            y_end: self.thread_height/self.quality
+        };
         
-            let mut im = info.image.lock().unwrap();
-            im.set_pixel(x as u32, y as u32, colour);
+        if self.layers.arb_precision {
+            self.render_arbitrary(&split);
+        } else {
+            self.render_double(&split);
+        }
+    }
+
+    fn render_double(&self, split: &ThreadSplitter) {
+        for x in 0..=split.x_end {
+            for y in 0..=split.y_end {
+                let z = ComplexType::Double(Complex::new(
+                    (self.center.real_f64() - self.dimensions.x as f64/2.0 * self.pixel_step) + x as f64 * self.pixel_step * self.quality as f64, 
+                    (self.center.im_f64() - self.dimensions.y as f64/2.0 * self.pixel_step) + (self.start_y+y*self.quality) as f64 * self.pixel_step,
+                ));
+                self.set_pixels(z, x, y, split);
+
+                if self.thread_cancel.load(Ordering::Relaxed) {
+                    return;
+                }
+            }
+        }
+    }
+
+    fn render_arbitrary(&self, split: &ThreadSplitter) {
+        let center = match self.center {
+            ComplexType::Big(ref c) => c.clone(),
+            ComplexType::Double(_) => panic!("center needs to be made arbitrary for arbitrary precision")
+        };
+        let dims = BigComplex::from_f64s(self.dimensions.x as f64, self.dimensions.y as f64);
+        // not sure what precision this should be yet - might need to change dynamically
+        let pixel_step = FBig::try_from(self.pixel_step).unwrap().with_precision(100).value();
+
+        let topleft = center - (dims/2.0) * pixel_step.clone();
+
+        for x in 0..=split.x_end {
+            for y in 0..=split.y_end {
+                let z = ComplexType::Big(BigComplex::new(
+                    topleft.real.clone() + FBig::try_from(x * self.quality).unwrap() * pixel_step.clone(), 
+                    topleft.im.clone() + FBig::try_from(self.start_y+y*self.quality).unwrap() * pixel_step.clone(),
+                ));
+                self.set_pixels(z, x, y, split);
+
+                if self.thread_cancel.load(Ordering::Relaxed) {
+                    return;
+                }
+            }
+        }
+    }
+
+    fn set_pixels(&self, z: ComplexType, x: usize, y: usize, split: &ThreadSplitter) {
+        let colour: Color = self.layers.colour_pixel(z, self.max_iterations);
+            
+        let mut im = self.image.lock().unwrap();
+
+        let width = if x == split.x_end {split.x_excess} else {self.quality};
+        let height = if y == split.y_end {split.y_excess} else {self.quality};
+        
+        for i in 0..width {
+            for j in 0..height {
+                im.set_pixel(
+                    (x*self.quality+i) as u32, 
+                    (self.start_y + y*self.quality + j) as u32, 
+                    colour
+                );
+            }
         }
     }
 }
@@ -585,14 +545,23 @@ pub struct Visualiser {
     view_dimensions: ScreenDimensions,
     screenshot_dimensions: ScreenDimensions,
     current_dimensions: ScreenDimensions,
-    center: (f64, f64),
+    center: ComplexType,
     pixel_step: f64,
     max_iterations: f32,
     thread_pool: ThreadPool,
+    rendering: bool,
+    /// used to cancel all currently running threads
+    thread_cancel: Arc<AtomicBool>,
     layers: Layers,
     image: Arc<Mutex<Image>>,
     texture: Texture2D, 
+    /// the percentage increase in zoom per second
     move_speed: f64,
+    /// how many pixels each complex number generated represents
+    pub quality: usize,
+    /// quality before decreasing quality when user stopped moving
+    saved_quality: usize,
+    moving: bool
 }
 impl Visualiser {
     pub fn new(
@@ -606,32 +575,55 @@ impl Visualiser {
             view_dimensions: ScreenDimensions::from_tuple(view_dimensions), 
             screenshot_dimensions: ScreenDimensions::from_tuple(screenshot_dimensions),
             current_dimensions: ScreenDimensions::from_tuple(view_dimensions),
-            center: (-0.5, 0.0),
+            center: ComplexType::Double(Complex::new(-0.5, 0.0)),
             image: Arc::new(Mutex::new(
                 Image::gen_image_color(view_dimensions.0 as u16, view_dimensions.1 as u16, 
                                        Color::new(0.0, 0.0, 0.0, 1.0)
             ))),
             texture: Texture2D::empty(),
             move_speed: 1f64, 
-            thread_pool: ThreadPool::new(THREADS)
+            thread_pool: ThreadPool::new(THREADS),
+            rendering: false,
+            thread_cancel: Arc::new(AtomicBool::new(false)),
+            quality: 2,
+            saved_quality: 5,
+            moving: false
         }
     }
 
     pub fn load(&mut self, pixel_step: f64, center_x: f64, center_y: f64, max_iterations: f32) {
         self.pixel_step = pixel_step;
-        self.center = (center_x, center_y);
+        self.center = ComplexType::Double(Complex::new(center_x, center_y));
         self.max_iterations = max_iterations;
         self.move_speed *= pixel_step / 0.005;
+    }
+
+    pub fn set_view_dimensions(&mut self, dimensions: &ScreenDimensions) {
+        self.view_dimensions = dimensions.clone();
+        self.current_dimensions = dimensions.clone();
+        self.image = Arc::new(Mutex::new(
+            Image::gen_image_color(self.current_dimensions.x as u16, self.current_dimensions.y as u16, 
+                                   Color::new(0.0, 0.0, 0.0, 1.0)
+        )));
+
+        self.generate_image();
     }
 
     /// generates and stores the mandlebrot image
     /// for the current parameters
     pub fn generate_image(&mut self) {
+        if self.rendering {
+            self.thread_cancel.store(true, Ordering::Relaxed);
+            self.thread_pool.join();
+            self.thread_cancel.store(false, Ordering::Relaxed);
+        }
+        self.rendering = true;
+
         self.layers.generate_palletes(self.max_iterations);
         
         let thread_height = self.current_dimensions.y / THREADS;
         for t in 0..THREADS {
-            let render_info = RenderInfo {
+            let renderer = Renderer {
                 dimensions: self.current_dimensions.clone(),
                 start_y: t * thread_height,
                 thread_height,
@@ -639,20 +631,33 @@ impl Visualiser {
                 pixel_step: self.pixel_step.clone(),
                 max_iterations: self.max_iterations.clone() as u32,
                 image: Arc::clone(&self.image),
-                layers: self.layers.clone()
+                layers: self.layers.clone(),
+                quality: self.quality.clone(),
+                thread_cancel: Arc::clone(&self.thread_cancel)
             };
             self.thread_pool.execute(move || {
-                render_image(render_info)
+                renderer.render_image()
             });
         }
-        self.thread_pool.join();
+        if !self.layers.arb_precision && self.quality > 1 {
+            self.thread_pool.join();
+        } 
 
         self.texture = Texture2D::from_image(&self.image.clone().lock().unwrap());
     }
 
     /// draw a generated image to the screen
-    pub fn draw(&self) {
-        draw_texture(self.texture, 0.0, 0.0, WHITE);
+    pub fn draw(&mut self) {
+        if self.rendering {
+            self.texture = Texture2D::from_image(&self.image.clone().lock().unwrap());
+
+            if self.thread_pool.active_count() == 0 && self.thread_pool.queued_count() == 0 {
+                self.rendering = false;
+            }
+        }
+
+        let start_x = screen_width() - self.current_dimensions.x as f32;
+        draw_texture(self.texture, start_x, 0.0, WHITE);
         
         let mut l = 0.0;
         for layer in self.layers.layers.iter() {
@@ -663,7 +668,7 @@ impl Visualiser {
             let size = self.current_dimensions.x as f32 / layer.pallete.len() as f32;
             for (i, colour) in layer.pallete.iter().enumerate() {
                 draw_rectangle(
-                    i as f32 * size, 
+                    start_x + i as f32 * size, 
                     l * 10., 
                     size, 
                     10., 
@@ -675,55 +680,103 @@ impl Visualiser {
 
         draw_text(
             &get_fps().to_string(),
-            10., 
+            start_x + 30., 
             10., 
             20., 
             BLACK
         );
         draw_text(
+            &self.quality.to_string(),
+            start_x + 60.,
+            10.,
+            20.,
+            BLACK
+        );
+        draw_text(
             &self.max_iterations.to_string(),
-            self.current_dimensions.x as f32 - 50., 
+            screen_width() - 50., 
             10., 
             20., 
             BLACK
         );
+    }
+
+    fn move_view_double(&self, center: &Complex, dt: f64) -> (ComplexType, bool) {
+        let (mut moved_y, mut moved_x) = (true, true);
+
+        let mut center = center.clone();
+
+        center.real += self.move_speed * dt * match (is_key_down(KeyCode::A), is_key_down(KeyCode::D)) {
+            (true, false) => -1.0,
+            (false, true) => 1.0,
+            _ => {moved_y = false; 0.0}
+        };
+
+        center.im += self.move_speed * dt * match (is_key_down(KeyCode::W), is_key_down(KeyCode::S)) {
+            (true, false) => -1.0,
+            (false, true) => 1.0,
+            _ => {moved_x = false; 0.0}
+        };
+
+        (ComplexType::Double(center), moved_x || moved_y)
+    }
+
+    fn move_view_big(&self, center: &BigComplex, dt: f64) -> (ComplexType, bool) {
+        let (mut moved_y, mut moved_x) = (true, true);
+
+        let mut center = center.clone();
+
+        let movement = FBig::try_from(self.move_speed * dt).unwrap();
+
+        center.real += movement.clone() * FBig::try_from(match (is_key_down(KeyCode::A), is_key_down(KeyCode::D)) {
+            (true, false) => -1.0,
+            (false, true) => 1.0,
+            _ => {moved_x = false; 0.0}
+        }).unwrap();
+
+        center.im += movement * FBig::try_from(match (is_key_down(KeyCode::W), is_key_down(KeyCode::S)) {
+            (true, false) => -1.0,
+            (false, true) => 1.0,
+            _ => {moved_y = false; 0.0}
+        }).unwrap();
+
+        (ComplexType::Big(center), moved_x || moved_y)
     }
 
     /// lets the user move the view around
     /// 
     /// returns whether the view was moved or not
     fn user_move_view(&mut self, dt: f64) -> bool {
-        let (mut moved_y, mut moved_x) = (true, true);
+        let moved;
 
-        self.center.1 += self.move_speed * dt * match (is_key_down(KeyCode::W), is_key_down(KeyCode::S)) {
-            (true, false) => -1.0,
-            (false, true) => 1.0,
-            _ => {moved_y = false; 0.0}
+        (self.center, moved) = match self.center {
+            ComplexType::Double(c) => {
+                self.move_view_double(&c, dt)
+            },
+            ComplexType::Big(ref c) => {
+                self.move_view_big(c, dt)
+            }
         };
 
-        self.center.0 += self.move_speed * dt * match (is_key_down(KeyCode::A), is_key_down(KeyCode::D)) {
-            (true, false) => -1.0,
-            (false, true) => 1.0,
-            _ => {moved_x = false; 0.0}
-        };
-
-        moved_y || moved_x
+        moved
     }
 
     /// lets the user zoom in 
     /// 
     /// return whether the user has zoomed or not
-    fn user_zoom(&mut self, dt: f64) -> bool {
+    fn user_zoom(&mut self, _dt: f64) -> bool {
+        // if (get_fps() as usize) < MIN_FPS {return false}
+
         let mut zoomed = true;
         
         match (is_key_down(KeyCode::Up), is_key_down(KeyCode::Down)) {
             (true, false) => {
-                self.pixel_step *= 1.0 - ZOOM_PERCENT_INC * dt;
-                self.move_speed *= 1.0 - ZOOM_PERCENT_INC * dt;
+                self.pixel_step *= 1.0 - ZOOM_PERCENT_INC / (get_fps() as f64 + ZOOM_PERCENT_INC + 1.0);
+                self.move_speed *= 1.0 -  ZOOM_PERCENT_INC / (get_fps() as f64 + ZOOM_PERCENT_INC + 1.0);
             }
             (false, true) => {
-                self.pixel_step *= 1.0 + ZOOM_PERCENT_INC * dt;
-                self.move_speed *= 1.0 + ZOOM_PERCENT_INC * dt;
+                self.pixel_step *= 1.0 +  ZOOM_PERCENT_INC / (get_fps() as f64 + ZOOM_PERCENT_INC + 1.0);
+                self.move_speed *= 1.0 +  ZOOM_PERCENT_INC / (get_fps() as f64 + ZOOM_PERCENT_INC + 1.0);
             }
             _ => {zoomed = false}
         }
@@ -835,6 +888,7 @@ impl Visualiser {
         let old_pixel_step = self.pixel_step.clone();
         let screen_height = self.view_dimensions.y as f64 * self.pixel_step;
         self.pixel_step = screen_height / self.screenshot_dimensions.y as f64;
+        self.quality = 1;
         self.current_dimensions = self.screenshot_dimensions.clone();
         self.image = Arc::new(Mutex::new(
             Image::gen_image_color(self.current_dimensions.x as u16, self.current_dimensions.y as u16, 
@@ -842,6 +896,9 @@ impl Visualiser {
         )));
 
         self.generate_image();
+        if self.thread_pool.active_count() != 0 || self.thread_pool.queued_count() != 0 {
+            self.thread_pool.join();
+        }
         let path = &format!["images/{}.png",
             image_name.clone()
         ];
@@ -857,8 +914,26 @@ impl Visualiser {
         self.generate_image();
     }
 
+    fn change_quality(&mut self) {
+        if self.quality < self.saved_quality {
+            self.quality = self.saved_quality;
+        }
+
+        if !self.rendering && (get_fps() as usize) < MIN_FPS && self.quality < MAX_QUALITY { // FPS too low
+            self.quality += 1;
+        } else if (get_fps() as usize) > MIN_FPS + FPS_DROP_EXCESS && self.quality > 1 { // FPS considerably high
+            self.quality -= 1;
+        }
+
+        self.saved_quality = self.quality;
+    }
+
     /// lets the user change the view
     pub fn user_move(&mut self) {
+        if (get_fps() as usize) > MIN_FPS {
+            self.update_precision();
+        }
+
         let dt = get_frame_time() as f64;
 
         let moved_view = self.user_move_view(dt);
@@ -874,17 +949,48 @@ impl Visualiser {
         self.user_export();   
     
         if moved_view || zoomed || iter || pallete || tp {
+            self.moving = true;
+            self.change_quality();
             self.generate_image();
+        // user stopped moving - increase quality
+        } else if !self.rendering && self.quality > 1 {
+            self.moving = false;
+            self.quality /= 2;
+            self.generate_image();
+        } else {
+            self.moving = false;
+        }
+    }
+
+    fn update_precision(&mut self) {
+        if self.pixel_step <= 2e-16 && !self.layers.arb_precision {
+            self.layers.make_big();
+            self.center = self.center.make_big();
+            self.quality = MAX_QUALITY;
+        } else if self.pixel_step > 2e-16 && self.layers.arb_precision {
+            self.layers.make_double();
+            self.center = self.center.make_double();
         }
     }
 
     /// automatically zooms into the centre
-    /// speed = percentage increase in zoom per second
-    pub fn play(&mut self, speed: f64) {
+    /// `speed` = percentage increase in zoom per second
+    /// `target_pixel_step` = stops zooming once it reaches a certain zoom
+    pub fn play(&mut self, speed: f64, target_pixel_step: Option<f64>) {
+        match target_pixel_step {
+            Some(t) => {
+                if self.pixel_step <= t {
+                    return
+                }
+            },
+            None => {}
+        }
+
         let dt = get_frame_time() as f64;
         self.pixel_step *= 1.0 - speed * dt;
-        self.generate_image();
 
+        self.change_quality();
+        self.generate_image();
         self.draw();
     }
 }

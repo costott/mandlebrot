@@ -1,10 +1,16 @@
+// © 2023 costott. All rights reserved. 
+// This code is provided for viewing purposes only. Copying, reproduction, 
+// or distribution of this code, in whole or in part, in any form or by any 
+// means, is strictly prohibited without prior written permission from the 
+// copyright owner.
+
 use macroquad::prelude::*;
-use std::time::Instant;
 
 use mandlebrot::ScreenDimensions;
 use mandlebrot::orbit_trap::*;
 use mandlebrot::layers::*;
 use mandlebrot::palletes::*;
+use mandlebrot::App;
 
 #[allow(unused_imports)]
 use mandlebrot::Visualiser;
@@ -13,25 +19,34 @@ use mandlebrot::Buhddabrot;
 #[allow(unused_imports)]
 use mandlebrot::JuliaSeed;
 
-#[macroquad::main("mandelbrot")]
+fn window_conf() -> Conf {
+    Conf {
+        window_title: "Mandelbrot".to_owned(),
+        fullscreen: true,
+        ..Default::default()
+    }
+}
+
+#[macroquad::main(window_conf)]
 async fn main() {
-    request_new_screen_size(mandlebrot::WIDTH as f32, mandlebrot::HEIGHT as f32);
     next_frame().await;
 
     let mut visualiser = Visualiser::new(
         0.005, 
         500.0, 
-        (600, 600),
+        (screen_width() as usize, screen_height() as usize),
         ScreenDimensions::tuple_4k(),
         Layers::new(vec![
-            Layer::new(LayerType::Colour, 1.0, ICE.to_vec(), 153.173),
-            // Layer::new(LayerType::ColourOrbitTrap(OrbitTrapType::Cross(OrbitTrapCross::new((2.5, 2.5), 5.0))), 
-            //            0.5, vec![WHITE, PINK, RED, WHITE], 250.0),
-            Layer::new(LayerType::Shading3D, 1.0, vec![], 1000.0),
-            Layer::new(LayerType::Shading, 1.0, 
+            Layer::new(LayerType::Colour, LayerRange::OutSet, 1.0, MIDNIGHT.to_vec(), 153.173),
+            Layer::new(LayerType::ColourOrbitTrap(OrbitTrapType::Point(OrbitTrapPoint::new((0.0, 0.0), OrbitTrapAnalysis::Angle))),
+                       LayerRange::InSet, 1.0, 
+                       vec![Color::from_rgba(135, 5, 88, 255), PINK, WHITE, PINK, Color::from_rgba(135, 5, 88, 255)], 
+                       500.0),
+            Layer::new(LayerType::Shading3D, LayerRange::OutSet, 1.0, vec![], 1000.0),
+            Layer::new(LayerType::Shading, LayerRange::OutSet, 1.0,
                        vec![WHITE, WHITE, WHITE, BLACK], 18.0),
-            Layer::new(LayerType::ShadingOrbitTrap(OrbitTrapType::Circle(OrbitTrapCircle::new((0.0, 0.0), 10.0))), 
-                       1.0, vec![WHITE, WHITE, BLACK], 1000.0)
+            Layer::new(LayerType::ShadingOrbitTrap(OrbitTrapType::Circle(OrbitTrapCircle::new((0.0, 0.0), 10.0, OrbitTrapAnalysis::Distance))), 
+                       LayerRange::OutSet, 1.0, vec![WHITE, WHITE, BLACK], 1000.0)
         ])
     );
 
@@ -44,17 +59,10 @@ async fn main() {
     // visualiser.load(0.000000000012544813697480459, -1.7857173222072602, 6.485835101156323e-5, 2000.);
     // visualiser.load(0.00000000027267392679500867, -1.7588897614644763, -0.019085635569219, 2000.0);
     // visualiser.load(0.000000000000040685052352904394, -1.758889768238364, -0.01908561816083628, 3000.0);
-    // visualiser.load(0.005, -1.7492892108246816, 3.46877435179622e-6, 500.0);
+    visualiser.load(0.005, -1.7492892108246816, 3.46877435179622e-6, 500.0);
 
-    let now = Instant::now();
-    visualiser.generate_image();
-    println!("Took {} seconds to generate",  now.elapsed().as_secs_f32());
+    // quality loss: 0.00000000000000028889130073327763
 
-    loop {
-        visualiser.draw();
-        visualiser.user_move();
-        // visualiser.play(0.4);
-
-        next_frame().await
-    }
+    let mut app = App::new(visualiser).await;
+    app.run().await;
 }
