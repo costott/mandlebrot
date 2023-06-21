@@ -214,6 +214,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashu-base"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f2585452b8ecf7c874045dba02a7914b7e5b2e3cdd5e152573413aa290197aa"
+
+[[package]]
+name = "dashu-float"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a168f338914fab603c31a371207c8b3245ab5ff5e9a0f4fd64a9b5f8a972d1f"
+dependencies = [
+ "dashu-base",
+ "dashu-int",
+ "num-traits",
+ "rand",
+ "static_assertions",
+]
+
+[[package]]
+name = "dashu-int"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57a1009a3ce0c4c64e977c5e7dd8c475278750e145cbb8956d1e28832f557975"
+dependencies = [
+ "cfg-if",
+ "dashu-base",
+ "num-traits",
+ "rand",
+ "static_assertions",
+]
+
+[[package]]
 name = "dasp_frame"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -429,6 +461,7 @@ version = "0.1.0"
 dependencies = [
  "astro-float",
  "chrono",
+ "dashu-float",
  "macroquad",
  "rand",
  "threadpool",
@@ -651,6 +684,12 @@ name = "smallvec"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a507befe795404456341dfab10cef66ead4c041f62b8b11bbb92bffe5d0953e0"
+
+[[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "syn"
