@@ -46,32 +46,69 @@ fn make_pallete(colour_map: &Vec<Color>, length: f32, max_iterations: f32) -> Ve
 /// analyse the given complex number, letting the implementors
 /// calculate their outputs
 /// 
+/// # For double precision complex numbers
+/// 
 /// # Returns
 /// returns if the point is in the set or not
-fn diverges_implementors(c: ComplexType, max_iterations: u32, implementations: &mut Vec<LayerImplementation>) -> bool {
-    let mut z = c.clone();
+fn diverges_implementors_double(c: Complex, max_iterations: u32, implementations: &mut Vec<LayerImplementation>) -> bool {
+    let mut z = c;
     for im in implementations.iter_mut() {
-        im.before(z.clone(), max_iterations);
+        im.before(max_iterations);
     }
 
     for i in 0..max_iterations {        
         // if z.real.abs() > BAILOUT_ORBIT_TRAP || z.im.abs() > BAILOUT_ORBIT_TRAP { <- much faster but less accurate
         if z.abs_squared() > BAILOUT_ORBIT_TRAP {
             for im in implementations.iter_mut() {
-                im.out_set(z.clone(), i);
+                im.out_set_double(z, i);
             }
             return false;
         }
 
         for im in implementations.iter_mut() {
-            im.during(z.clone(), i);
+            im.during_double(z, i);
         }
 
-        z = z.square() + c.clone();
+        z = z.square() + c;
     }
 
     for im in implementations.iter_mut() {
-        im.in_set(z.clone());
+        im.in_set_double(z);
+    }
+    return true;
+}
+
+/// analyse the given complex number, letting the implementors
+/// calculate their outputs
+/// 
+/// # For arbitrary precision complex numbers
+/// 
+/// # Returns
+/// returns if the point is in the set or not
+fn diverges_implementors_big(c: BigComplex, max_iterations: u32, implementations: &mut Vec<LayerImplementation>) -> bool {
+    let mut z = c.clone();
+    for im in implementations.iter_mut() {
+        im.before(max_iterations);
+    }
+
+    for i in 0..max_iterations {        
+        // if z.real.abs() > BAILOUT_ORBIT_TRAP || z.im.abs() > BAILOUT_ORBIT_TRAP { <- much faster but less accurate
+        if z.abs_squared() > BAILOUT_ORBIT_TRAP {
+            for im in implementations.iter_mut() {
+                im.out_set_big(&z, i);
+            }
+            return false;
+        }
+
+        for im in implementations.iter_mut() {
+            im.during_big(&z, i);
+        }
+
+        z = &z.square() + &c;
+    }
+
+    for im in implementations.iter_mut() {
+        im.in_set_big(&z);
     }
     return true;
 }
@@ -101,15 +138,32 @@ impl LayerType {
 /// Controls the behaviour of layer implementors when analysing a point
 trait LayerImplementor {
     /// what needs to happen before iterations start for a given pixel
-    fn before(&mut self, z: ComplexType, max_iterations: u32);
+    fn before(&mut self, max_iterations: u32);
+
     /// what needs to happen each iteration, before the next z is calculated
-    fn during(&mut self, z: ComplexType, i: u32);
+    /// for double precision
+    fn during_double(&mut self, z: Complex, i: u32);
+    /// what needs to happen each iteration, before the next z is calculated
+    /// for arbitrary precision
+    fn during_big(&mut self, z: &BigComplex, i: u32);
+
     /// what needs to happen if the point is outside the set
-    fn out_set(&mut self, z: ComplexType, i: u32);
+    /// for double precision
+    fn out_set_double(&mut self, z: Complex, i: u32);
+    /// what needs to happen if the point is outside the set
+    /// for arbitrary precision
+    fn out_set_big(&mut self, z: &BigComplex, i: u32);
+
     /// what needs to happen if the point is inside the set
-    fn in_set(&mut self, z: ComplexType);
+    /// for double precision
+    fn in_set_double(&mut self, z: Complex);
+    /// what needs to happen if the point is inside the set
+    /// for arbitrary precision
+    fn in_set_big(&mut self, z: &BigComplex);
+
     /// output the generated value
     fn get_output(&self) -> f64;
+
     /// converts all numbers used to arbitrary precision
     fn make_big(&mut self) {}
     /// converts all numbers used to double precision
@@ -128,35 +182,59 @@ enum LayerImplementation {
     Shading3DImplementor(Shading3DImplementor)
 }
 impl LayerImplementor for LayerImplementation {
-    fn before(&mut self, z: ComplexType, max_iterations: u32) {
+    fn before(&mut self, max_iterations: u32) {
         match self {
-            LayerImplementation::ColourImplemetor(im) => im.before(z, max_iterations),
-            LayerImplementation::OrbitTrapImplementor(im) => im.before(z, max_iterations),
-            LayerImplementation::Shading3DImplementor(im) => im.before(z, max_iterations)
+            LayerImplementation::ColourImplemetor(im) => im.before(max_iterations),
+            LayerImplementation::OrbitTrapImplementor(im) => im.before(max_iterations),
+            LayerImplementation::Shading3DImplementor(im) => im.before(max_iterations)
         }
     }
 
-    fn during(&mut self, z: ComplexType, i: u32) {
+    fn during_double(&mut self, z: Complex, i: u32) {
         match self {
-            LayerImplementation::ColourImplemetor(im) => im.during(z, i),
-            LayerImplementation::OrbitTrapImplementor(im) => im.during(z, i),
-            LayerImplementation::Shading3DImplementor(im) => im.during(z, i)
+            LayerImplementation::ColourImplemetor(im) => im.during_double(z, i),
+            LayerImplementation::OrbitTrapImplementor(im) => im.during_double(z, i),
+            LayerImplementation::Shading3DImplementor(im) => im.during_double(z, i)
         }
     }
 
-    fn out_set(&mut self, z: ComplexType, i: u32) {
+    fn during_big(&mut self, z: &BigComplex, i: u32) {
         match self {
-            LayerImplementation::ColourImplemetor(im) => im.out_set(z, i),
-            LayerImplementation::OrbitTrapImplementor(im) => im.out_set(z, i),
-            LayerImplementation::Shading3DImplementor(im) => im.out_set(z, i)
+            LayerImplementation::ColourImplemetor(im) => im.during_big(z, i),
+            LayerImplementation::OrbitTrapImplementor(im) => im.during_big(z, i),
+            LayerImplementation::Shading3DImplementor(im) => im.during_big(z, i)
         }
     }
 
-    fn in_set(&mut self, z: ComplexType) {
+    fn out_set_double(&mut self, z: Complex, i: u32) {
         match self {
-            LayerImplementation::ColourImplemetor(im) => im.in_set(z),
-            LayerImplementation::OrbitTrapImplementor(im) => im.in_set(z),
-            LayerImplementation::Shading3DImplementor(im) => im.in_set(z)
+            LayerImplementation::ColourImplemetor(im) => im.out_set_double(z, i),
+            LayerImplementation::OrbitTrapImplementor(im) => im.out_set_double(z, i),
+            LayerImplementation::Shading3DImplementor(im) => im.out_set_double(z, i)
+        }
+    }
+
+    fn out_set_big(&mut self, z: &BigComplex, i: u32) {
+        match self {
+            LayerImplementation::ColourImplemetor(im) => im.out_set_big(z, i),
+            LayerImplementation::OrbitTrapImplementor(im) => im.out_set_big(z, i),
+            LayerImplementation::Shading3DImplementor(im) => im.out_set_big(z, i)
+        }
+    }
+
+    fn in_set_double(&mut self, z: Complex) {
+        match self {
+            LayerImplementation::ColourImplemetor(im) => im.in_set_double(z),
+            LayerImplementation::OrbitTrapImplementor(im) => im.in_set_double(z),
+            LayerImplementation::Shading3DImplementor(im) => im.in_set_double(z)
+        }
+    }
+
+    fn in_set_big(&mut self, z: &BigComplex) {
+        match self {
+            LayerImplementation::ColourImplemetor(im) => im.in_set_big(z),
+            LayerImplementation::OrbitTrapImplementor(im) => im.in_set_big(z),
+            LayerImplementation::Shading3DImplementor(im) => im.in_set_big(z)
         }
     }
 
@@ -197,18 +275,28 @@ impl ColourImplemetor {
     }
 }
 impl LayerImplementor for ColourImplemetor {
-    fn before(&mut self, _z: ComplexType, _max_iterations: u32) {}
+    fn before(&mut self, _max_iterations: u32) {}
 
-    fn during(&mut self, _z: ComplexType, _i: u32) {}
+    fn during_double(&mut self, _z: Complex, _i: u32) {}
+    fn during_big(&mut self, _z: &BigComplex, _i: u32) {}
 
-    fn out_set(&mut self, z: ComplexType, i: u32) {
+    fn out_set_double(&mut self, z: Complex, i: u32) {
         let log_zmod = f64::log2(z.abs_squared()) / 2.0;
         let nu = f64::log2(log_zmod);
         let smooth_iteration = i as f64 + 1.0 - nu;
         self.output =  smooth_iteration;
     }
+    fn out_set_big(&mut self, z: &BigComplex, i: u32) {
+        let log_zmod = f64::log2(z.abs_squared()) / 2.0;
+        let nu = f64::log2(log_zmod);
+        let smooth_iteration = i as f64 + 1.0 - nu;
+        self.output = smooth_iteration;
+    }
 
-    fn in_set(&mut self, _z: ComplexType) {
+    fn in_set_double(&mut self, _z: Complex) {
+        self.output = 0.0;
+    }
+    fn in_set_big(&mut self, _z: &BigComplex) {
         self.output = 0.0;
     }
 
@@ -226,7 +314,8 @@ struct OrbitTrapImplementor {
     divisor: f64,
     trap: OrbitTrapType,
     /// 'vector' of closest point to the trap
-    closest_to_trap: ComplexType
+    closest_to_trap: Complex,
+    closest_to_trap_big: BigComplex
 }
 impl OrbitTrapImplementor {
     fn new(trap: OrbitTrapType) -> OrbitTrapImplementor {
@@ -235,11 +324,12 @@ impl OrbitTrapImplementor {
             min_distance2: trap.greatest_distance2(),
             divisor: 0.0, 
             trap,
-            closest_to_trap: ComplexType::Double(Complex::new(0.0, 0.0))
+            closest_to_trap: Complex::new(0.0, 0.0),
+            closest_to_trap_big: BigComplex::from_f64s(0.0, 0.0)
         }
     }
 
-    fn generate_output(&self) -> f64 {
+    fn generate_output_double(&self) -> f64 {
         let output = match self.trap.get_analysis() {
             OrbitTrapAnalysis::Distance => self.min_distance2.sqrt(),
             OrbitTrapAnalysis::Real => self.closest_to_trap.real_f64().abs(),
@@ -248,39 +338,54 @@ impl OrbitTrapImplementor {
         } / self.divisor;
         output
     }
+    fn generate_output_big(&self) -> f64 {
+        let output = match self.trap.get_analysis() {
+            OrbitTrapAnalysis::Distance => self.min_distance2.sqrt(),
+            OrbitTrapAnalysis::Real => self.closest_to_trap_big.real_f64().abs(),
+            OrbitTrapAnalysis::Imaginary => self.closest_to_trap_big.im_f64().abs(),
+            OrbitTrapAnalysis::Angle => PI + self.closest_to_trap_big.arg()
+        } / self.divisor;
+        output
+    }
 }
 impl LayerImplementor for OrbitTrapImplementor {
-    fn before(&mut self, _z: ComplexType, max_iterations: u32) {
+    fn before(&mut self, max_iterations: u32) {
         self.divisor = self.min_distance2.sqrt() / max_iterations as f64;
     }
 
-    fn during(&mut self, z: ComplexType, _i: u32) {
+    fn during_double(&mut self, z: Complex, _i: u32) {
         // if i == 0 {return}
-        let z_trap_distance2 = self.trap.distance2(z.clone());
+        let z_trap_distance2 = self.trap.distance2_double(z);
         if z_trap_distance2 < self.min_distance2 {
             self.min_distance2 = z_trap_distance2;
-            self.closest_to_trap = self.trap.vector(z);
+            self.closest_to_trap = self.trap.vector_double(z);
+        }
+    }
+    fn during_big(&mut self, z: &BigComplex, _i: u32) {
+        // if i == 0 {return}
+        let z_trap_distance2 = self.trap.distance2_big(z);
+        if z_trap_distance2 < self.min_distance2 {
+            self.min_distance2 = z_trap_distance2;
+            self.closest_to_trap_big = self.trap.vector_big(z);
         }
     }
 
-    fn out_set(&mut self, _z: ComplexType, _i: u32) {
-        self.output = self.generate_output();
+    fn out_set_double(&mut self, _z: Complex, _i: u32) {
+        self.output = self.generate_output_double();
+    }
+    fn out_set_big(&mut self, _z: &BigComplex, _i: u32) {
+        self.output = self.generate_output_big();
     }
 
-    fn in_set(&mut self, _z: ComplexType) {
-        self.output = self.generate_output();
+    fn in_set_double(&mut self, _z: Complex) {
+        self.output = self.generate_output_double();
+    }
+    fn in_set_big(&mut self, _z: &BigComplex) {
+        self.output = self.generate_output_big();
     }
 
     fn get_output(&self) -> f64 {
         self.output
-    }
-
-    fn make_big(&mut self) {
-        self.closest_to_trap.make_big();
-    }
-
-    fn make_double(&mut self) {
-        self.closest_to_trap.make_double();
     }
 }
 
@@ -290,27 +395,46 @@ impl LayerImplementor for OrbitTrapImplementor {
 /// calculating a t value that represents darkness/brightness
 struct Shading3DImplementor {
     output: f64,
-    v: ComplexType,
-    der: ComplexType,
-    dc: ComplexType,
+    v: Complex,
+    v_big: BigComplex,
+    der: Complex,
+    der_big: BigComplex,
+    dc: Complex,
+    dc_big: BigComplex
 }
 impl Shading3DImplementor {
     fn new() -> Shading3DImplementor {
         Shading3DImplementor { 
             output: 0.0, 
-            v: ComplexType::Double(Complex::new(
+            v: Complex::new(
                 f64::cos(ANGLE * (PI / 180.)),
                 f64::sin(ANGLE * (PI / 180.))
-            )),
-            der: ComplexType::Double(Complex::new(1., 0.)), 
-            dc: ComplexType::Double(Complex::new(1., 0.)),
+            ),
+            v_big: BigComplex::from_f64s(
+                f64::cos(ANGLE * (PI / 180.)),
+                f64::sin(ANGLE * (PI / 180.))
+            ),
+            der: Complex::new(1., 0.), 
+            der_big: BigComplex::from_f64s(1., 0.),
+            dc: Complex::new(1., 0.),
+            dc_big: BigComplex::from_f64s(1., 0.)
         }
     }
 
-    fn generate_output(&self, z: ComplexType) -> f64 {
-        let mut u = z / self.der.clone();
-        u = u.clone() / f64::sqrt(u.abs_squared());
-        let t = u.real_f64()*self.v.real_f64() + u.im_f64()*self.v.im_f64();
+    fn generate_output_double(&self, z: Complex) -> f64 {
+        let mut u = z / self.der;
+        u = &u / f64::sqrt(u.abs_squared());
+        let t = u.real*self.v.real + u.im*self.v.im;
+        let mut t = t+ H2;
+        t = t/(1.+H2);
+        t = f64::max(0.1, t);
+        t
+    }
+
+    fn generate_output_big(&self, z: &BigComplex) -> f64 {
+        let mut u = z / &self.der_big;
+        u = &u / f64::sqrt(u.abs_squared());
+        let t = u.real_f64()*self.v_big.real_f64() + u.im_f64()*self.v_big.im_f64();
         let mut t = t+ H2;
         t = t/(1.+H2);
         t = f64::max(0.1, t);
@@ -318,34 +442,31 @@ impl Shading3DImplementor {
     }
 }
 impl LayerImplementor for Shading3DImplementor {
-    fn before(&mut self, _z: ComplexType, _max_iterations: u32) {}
+    fn before(&mut self, _max_iterations: u32) {}
 
-    fn during(&mut self, z: ComplexType, _i: u32) {
-        self.der = self.der.clone() * (z * 2.) + self.dc.clone();
+    fn during_double(&mut self, z: Complex, _i: u32) {
+        self.der = self.der * (z * 2.) + self.dc;
+    }
+    fn during_big(&mut self, z: &BigComplex, _i: u32) {
+        self.der_big = &self.der_big * (z * 2.) + &self.dc_big;
     }
 
-    fn out_set(&mut self, z: ComplexType, _i: u32) {
-        self.output = self.generate_output(z);
+    fn out_set_double(&mut self, z: Complex, _i: u32) {
+        self.output = self.generate_output_double(z);
+    }
+    fn out_set_big(&mut self, z: &BigComplex, _i: u32) {
+        self.output = self.generate_output_big(z);
     }
 
-    fn in_set(&mut self, z: ComplexType) {
-        self.output = self.generate_output(z);
+    fn in_set_double(&mut self, z: Complex) {
+        self.output = self.generate_output_double(z);
+    }
+    fn in_set_big(&mut self, z: &BigComplex) {
+        self.output = self.generate_output_big(z);
     }
 
     fn get_output(&self) -> f64 {
         self.output
-    }
-
-    fn make_big(&mut self) {
-        self.v = self.v.make_big();
-        self.der = self.der.make_big();
-        self.dc = self.dc.make_big();
-    }
-
-    fn make_double(&mut self) {
-        self.v = self.v.make_double();
-        self.der = self.der.make_double();
-        self.dc = self.dc.make_double();
     }
 }
 
@@ -451,22 +572,6 @@ impl Layers {
         Layers { layers, implementors, implementor_map, arb_precision: false }
     }
 
-    /// makes all the numbers used in the implementors arbitary precision
-    pub fn make_big(&mut self) {
-        for implementor in self.implementors.iter_mut() {
-            implementor.make_big();
-        }
-        self.arb_precision = true;
-    }
-
-    /// makes all the numbers used in the implementors double precision
-    pub fn make_double(&mut self) {
-        for implementor in self.implementors.iter_mut() {
-            implementor.make_double();
-        }
-        self.arb_precision = false;
-    }
-
     /// makes sure all the palletes for the layers
     /// are updated for the current max iterations
     pub fn generate_palletes(&mut self, max_iterations: f32) {
@@ -483,7 +588,10 @@ impl Layers {
 
     fn colour_pixel_implementors(&self, c: ComplexType, max_iterations: u32) -> Color {
         let mut implementors = self.implementors.clone();
-        let in_set = diverges_implementors(c, max_iterations, &mut implementors);
+        let in_set = match c {
+            ComplexType::Double(c) => diverges_implementors_double(c, max_iterations, &mut implementors),
+            ComplexType::Big(c) => diverges_implementors_big(c, max_iterations, &mut implementors)
+        };
 
         let mut colour: Option<Color> = None;
         for (i, layer) in self.layers.iter().enumerate() {

@@ -40,11 +40,11 @@ pub const BAILOUT_3D: f64 = 10000.;
 pub const BAILOUT_ORBIT_TRAP: f64 = 20.0;
 
 // user changing view
-pub const ZOOM_PERCENT_INC: f64 = 2.0;//0.5f64;
+pub const ZOOM_PERCENT_INC: f64 = 0.5f64;
 pub const MAX_ITER_INC_SPEED: f32 = 10f32;
 pub const PALLETE_LENGTH_INC_SPEED: f32 = 50f32;
 
-pub const THREADS: usize = 5;//15; //12 14 15 17
+pub const THREADS: usize = 5; //12 14 15 17
 
 pub const MIN_FPS: usize = 10;
 /// extra fps that must be exceeded before the pixel size decreases
@@ -59,7 +59,7 @@ pub struct App {
 }
 impl App {
     pub async fn new(visualiser: Visualiser) -> App {
-        App { visualiser , menu: Menu::new().await }
+        App { visualiser, menu: Menu::new().await }
     }
 
     pub async fn run(&mut self) {
@@ -120,26 +120,29 @@ pub mod orbit_trap {
             }
         }
 
-        /// returns a vector of the given complex number to the point
-        fn vector(&self, z: ComplexType) -> ComplexType {
-            match z {
-                ComplexType::Double(c) => ComplexType::Double(c - self.point),
-                ComplexType::Big(c) => ComplexType::Big(c - self.big_point.clone())
-            }
+        /// returns a vector of the given (double) complex number to the point
+        fn vector_double(&self, z: Complex) -> Complex {
+            z - self.point
+        }
+        /// returns a vector of the given (arbitrary) complex number to the point
+        fn vector_big(&self, z: &BigComplex) -> BigComplex {
+            z - &self.big_point
         }
 
         /// returns the distance squared between the 
-        /// given complex number and the point trap
-        pub fn distance2(&self, z: ComplexType) -> f64 {
+        /// given (double) complex number and the point trap
+        pub fn distance2_double(&self, z: Complex) -> f64 {
             // match self.analysis {
             //     OrbitTrapAnalysis::Distance => (z-self.point).abs_squared(),
             //     OrbitTrapAnalysis::Real => (z.real-self.point.real).abs(),
             //     OrbitTrapAnalysis::Imaginary => (z.im-self.point.im).powi(2)
             // }
-            match z {
-                ComplexType::Double(c) => (c-self.point).abs_squared(),
-                ComplexType::Big(c) => (c-self.big_point.clone()).abs_squared()
-            }
+            (z-self.point).abs_squared()
+        }
+        /// returns the distance squared between the 
+        /// given (arbitrary) complex number and the point trap
+        pub fn distance2_big(&self, z: &BigComplex) -> f64 {
+            (z-&self.big_point).abs_squared()
         }
 
         /// returns the maximum possible distance
@@ -172,22 +175,16 @@ pub mod orbit_trap {
             }
         }
 
-        fn vector(&self, z: ComplexType) -> ComplexType {
-            // TODO 
-            match z {
-                ComplexType::Double(_) => ComplexType::Double(Complex::new(0.0, 0.0)),
-                ComplexType::Big(_) => ComplexType::Big(BigComplex::from_f64s(0.0, 0.0))
-            }
-        }
-        
-        /// returns the shortest distance squared between the 
-        /// given complex number and the cross trap
-        pub fn distance2(&self, z: ComplexType) -> f64 {
-            let z = match z {
-                ComplexType::Double(c) => c,
-                ComplexType::Big(c) => c.to_complex()
-            };
+        // TODO: vector
 
+        fn vector_double(&self, _z: Complex) -> Complex {
+            Complex::new(0.0, 0.0)
+        }
+        fn vector_big(&self, _z: &BigComplex) -> BigComplex {
+            BigComplex::from_f64s(0.0, 0.0)
+        }
+
+        fn distance2(&self, z: Complex) -> f64 {
             let shortest_distance;
             let x_dist = z.real-self.centre.real;
             let x_dist2 = x_dist.powi(2);
@@ -207,6 +204,18 @@ pub mod orbit_trap {
             }
 
             shortest_distance
+        }
+        
+        /// returns the shortest distance squared between the 
+        /// given (double) complex number and the cross trap
+        pub fn distance2_double(&self, z: Complex) -> f64 {
+            self.distance2(z)
+        }
+        /// returns the shortest distance squared between the 
+        /// given (arbitrary) complex number and the cross trap
+        pub fn distance2_big(&self, z: &BigComplex) -> f64 {
+            let z = z.to_complex();
+            self.distance2(z)
         }
 
         /// returns the maximum possible distance
@@ -232,22 +241,26 @@ pub mod orbit_trap {
             }
         }
 
-        /// returns the smallest vector of the given complex number to the circle
-        fn vector(&self, z: ComplexType) -> ComplexType {
-            // TODO 
-            match z {
-                ComplexType::Double(_) => ComplexType::Double(Complex::new(0.0, 0.0)),
-                ComplexType::Big(_) => ComplexType::Big(BigComplex::from_f64s(0.0, 0.0))
-            }
+        // TODO: VECTOR
+
+        /// returns the smallest vector of the given (double) complex number to the circle
+        fn vector_double(&self, _z: Complex) -> Complex {
+            Complex::new(0.0, 0.0)
+        }
+        /// returns the smallest vector of the given (arbitrary) complex number to the circle
+        fn vector_big(&self, _z: &BigComplex) -> BigComplex {
+            BigComplex::from_f64s(0.0, 0.0)
         }
 
         /// returns the shortest distance between the 
         /// given complex number and the circle trap
-        pub fn distance2(&self, z: ComplexType) -> f64 {
-            (match z {
-                ComplexType::Double(c) => (c-self.centre).abs_squared(),
-                ComplexType::Big(c) => (c-self.big_centre.clone()).abs_squared()
-            }.sqrt() - self.radius).powi(2)
+        pub fn distance2_double(&self, z: Complex) -> f64 {
+            ((z-self.centre).abs_squared().sqrt() - self.radius).powi(2)
+        }
+        /// returns the shortest distance between the 
+        /// given complex number and the circle trap
+        pub fn distance2_big(&self, z: &BigComplex) -> f64 {
+            ((z-&self.big_centre).abs_squared().sqrt() - self.radius).powi(2)
         }
 
         /// returns the maximum possible distance
@@ -284,20 +297,35 @@ pub mod orbit_trap {
             }
         }
 
-        pub fn vector(&self, z: ComplexType) -> ComplexType {
+        pub fn vector_double(&self, z: Complex) -> Complex {
             match self {
-                OrbitTrapType::Point(point) => point.vector(z),
-                OrbitTrapType::Cross(cross) => cross.vector(z),
-                OrbitTrapType::Circle(circle) => circle.vector(z)
+                OrbitTrapType::Point(point) => point.vector_double(z),
+                OrbitTrapType::Cross(cross) => cross.vector_double(z),
+                OrbitTrapType::Circle(circle) => circle.vector_double(z)
+            }
+        }
+        pub fn vector_big(&self, z: &BigComplex) -> BigComplex {
+            match self {
+                OrbitTrapType::Point(point) => point.vector_big(z),
+                OrbitTrapType::Cross(cross) => cross.vector_big(z),
+                OrbitTrapType::Circle(circle) => circle.vector_big(z)
             }
         }
         
         /// returns the distance squared between the given complex number and trap
-        pub fn distance2(&self, z: ComplexType) -> f64 {
+        pub fn distance2_double(&self, z: Complex) -> f64 {
             match self {
-                OrbitTrapType::Point(point) => point.distance2(z),
-                OrbitTrapType::Cross(cross) => cross.distance2(z),
-                OrbitTrapType::Circle(circle) => circle.distance2(z)
+                OrbitTrapType::Point(point) => point.distance2_double(z),
+                OrbitTrapType::Cross(cross) => cross.distance2_double(z),
+                OrbitTrapType::Circle(circle) => circle.distance2_double(z)
+            }
+        }
+        /// returns the distance squared between the given complex number and trap
+        pub fn distance2_big(&self, z: &BigComplex) -> f64 {
+            match self {
+                OrbitTrapType::Point(point) => point.distance2_big(z),
+                OrbitTrapType::Cross(cross) => cross.distance2_big(z),
+                OrbitTrapType::Circle(circle) => circle.distance2_big(z)
             }
         }
 
@@ -471,11 +499,10 @@ impl Renderer {
             x_end: self.dimensions.x/self.quality,
             y_end: self.thread_height/self.quality
         };
-        
-        if self.layers.arb_precision {
-            self.render_arbitrary(&split);
-        } else {
-            self.render_double(&split);
+
+        match self.center {
+            ComplexType::Double(_) => self.render_double(&split),
+            ComplexType::Big(_) => self.render_arbitrary(&split)
         }
     }
 
@@ -504,20 +531,29 @@ impl Renderer {
         // not sure what precision this should be yet - might need to change dynamically
         let pixel_step = FBig::try_from(self.pixel_step).unwrap().with_precision(100).value();
 
-        let topleft = center - (dims/2.0) * pixel_step.clone();
+        let quality = FBig::try_from(self.quality).unwrap().with_precision(100).value();
+
+        let mut x_add = FBig::ZERO;
+        let start_y = FBig::try_from(self.start_y).unwrap() * &pixel_step;
+        let mut y_add;
+
+        let topleft = center - (dims/2.0) * &pixel_step;
 
         for x in 0..=split.x_end {
+            y_add = FBig::ZERO;
             for y in 0..=split.y_end {
                 let z = ComplexType::Big(BigComplex::new(
-                    topleft.real.clone() + FBig::try_from(x * self.quality).unwrap() * pixel_step.clone(), 
-                    topleft.im.clone() + FBig::try_from(self.start_y+y*self.quality).unwrap() * pixel_step.clone(),
+                    &topleft.real + &x_add * &pixel_step, 
+                    &topleft.im + &start_y + &y_add * &pixel_step,
                 ));
+                y_add += &quality;
                 self.set_pixels(z, x, y, split);
 
                 if self.thread_cancel.load(Ordering::Relaxed) {
                     return;
                 }
             }
+            x_add += &quality;
         }
     }
 
@@ -561,6 +597,7 @@ pub struct Visualiser {
     pub quality: usize,
     /// quality before decreasing quality when user stopped moving
     saved_quality: usize,
+    arb_precision: bool,
     moving: bool
 }
 impl Visualiser {
@@ -582,11 +619,12 @@ impl Visualiser {
             ))),
             texture: Texture2D::empty(),
             move_speed: 1f64, 
-            thread_pool: ThreadPool::new(THREADS),
+            thread_pool: ThreadPool::new(5),
             rendering: false,
             thread_cancel: Arc::new(AtomicBool::new(false)),
             quality: 2,
-            saved_quality: 5,
+            saved_quality: 1,
+            arb_precision: false,
             moving: false
         }
     }
@@ -612,7 +650,13 @@ impl Visualiser {
     /// generates and stores the mandlebrot image
     /// for the current parameters
     pub fn generate_image(&mut self) {
-        if self.rendering {
+        if self.rendering && self.arb_precision {
+            self.thread_cancel.store(true, Ordering::Relaxed);
+            self.thread_pool.join();
+            self.thread_cancel.store(false, Ordering::Relaxed);
+        }
+        if self.rendering && !self.arb_precision {
+            self.quality += 1;
             self.thread_cancel.store(true, Ordering::Relaxed);
             self.thread_pool.join();
             self.thread_cancel.store(false, Ordering::Relaxed);
@@ -639,7 +683,7 @@ impl Visualiser {
                 renderer.render_image()
             });
         }
-        if !self.layers.arb_precision && self.quality > 1 {
+        if !self.arb_precision && self.quality > 1 {
             self.thread_pool.join();
         } 
 
@@ -772,11 +816,11 @@ impl Visualiser {
         match (is_key_down(KeyCode::Up), is_key_down(KeyCode::Down)) {
             (true, false) => {
                 self.pixel_step *= 1.0 - ZOOM_PERCENT_INC / (get_fps() as f64 + ZOOM_PERCENT_INC + 1.0);
-                self.move_speed *= 1.0 -  ZOOM_PERCENT_INC / (get_fps() as f64 + ZOOM_PERCENT_INC + 1.0);
+                self.move_speed *= 1.0 - ZOOM_PERCENT_INC / (get_fps() as f64 + ZOOM_PERCENT_INC + 1.0);
             }
             (false, true) => {
-                self.pixel_step *= 1.0 +  ZOOM_PERCENT_INC / (get_fps() as f64 + ZOOM_PERCENT_INC + 1.0);
-                self.move_speed *= 1.0 +  ZOOM_PERCENT_INC / (get_fps() as f64 + ZOOM_PERCENT_INC + 1.0);
+                self.pixel_step *= 1.0 + ZOOM_PERCENT_INC / (get_fps() as f64 + ZOOM_PERCENT_INC + 1.0);
+                self.move_speed *= 1.0 + ZOOM_PERCENT_INC / (get_fps() as f64 + ZOOM_PERCENT_INC + 1.0);
             }
             _ => {zoomed = false}
         }
@@ -963,12 +1007,12 @@ impl Visualiser {
     }
 
     fn update_precision(&mut self) {
-        if self.pixel_step <= 2e-16 && !self.layers.arb_precision {
-            self.layers.make_big();
+        if self.pixel_step <= 2e-16 && !self.arb_precision {
+            self.arb_precision = true;
             self.center = self.center.make_big();
             self.quality = MAX_QUALITY;
-        } else if self.pixel_step > 2e-16 && self.layers.arb_precision {
-            self.layers.make_double();
+        } else if self.pixel_step > 2e-16 && self.arb_precision {
+            self.arb_precision = false;
             self.center = self.center.make_double();
         }
     }
@@ -980,16 +1024,20 @@ impl Visualiser {
         match target_pixel_step {
             Some(t) => {
                 if self.pixel_step <= t {
-                    return
+                    
+                } else {
+                    self.pixel_step *= 1.0 - speed / (get_fps() as f64 + speed + 1.0);
+                    self.moving = true;
                 }
             },
-            None => {}
+            None => {
+                self.pixel_step *= 1.0 - speed / (get_fps() as f64 + speed + 1.0);
+                self.moving = true;
+            }
         }
 
-        let dt = get_frame_time() as f64;
-        self.pixel_step *= 1.0 - speed * dt;
-
         self.change_quality();
+        self.update_precision();
         self.generate_image();
         self.draw();
     }
