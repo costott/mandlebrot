@@ -100,102 +100,102 @@ impl ComplexType {
         }
     }
 }
-impl ComplexNumber for ComplexType {
-    fn square(&self) -> Self {
-        match self {
-            Self::Double(c) => Self::Double(c.square()),
-            Self::Big(c) => Self::Big(c.square())
-        }
-    }
+// impl ComplexNumber for ComplexType {
+//     fn square(&self) -> Self {
+//         match self {
+//             Self::Double(c) => Self::Double(c.square()),
+//             Self::Big(c) => Self::Big(c.square())
+//         }
+//     }
 
-    fn abs_squared(&self) -> f64 {
-        match self {
-            Self::Double(c) => c.abs_squared(),
-            Self::Big(c) => c.abs_squared()
-        }
-    }
+//     fn abs_squared(&self) -> f64 {
+//         match self {
+//             Self::Double(c) => c.abs_squared(),
+//             Self::Big(c) => c.abs_squared()
+//         }
+//     }
 
-    fn conjugate(&self) -> Self {
-        match self {
-            Self::Double(c) => Self::Double(c.conjugate()),
-            Self::Big(c) => Self::Big(c.conjugate())
-        }
-    }
+//     fn conjugate(&self) -> Self {
+//         match self {
+//             Self::Double(c) => Self::Double(c.conjugate()),
+//             Self::Big(c) => Self::Big(c.conjugate())
+//         }
+//     }
 
-    fn arg(&self) -> f64 {
-        match self {
-            Self::Double(c) => c.arg(),
-            Self::Big(c) => c.arg()
-        }
-    }
+//     fn arg(&self) -> f64 {
+//         match self {
+//             Self::Double(c) => c.arg(),
+//             Self::Big(c) => c.arg()
+//         }
+//     }
 
-    fn distance2_to(&self, other: ComplexType) -> f64 {
-        match self {
-            Self::Double(c) => c.distance2_to(other),
-            Self::Big(c) => c.distance2_to(other)
-        }
-    }
-}
-impl Add for ComplexType {
-    type Output = ComplexType;
+//     fn distance2_to(&self, other: ComplexType) -> f64 {
+//         match self {
+//             Self::Double(c) => c.distance2_to(other),
+//             Self::Big(c) => c.distance2_to(other)
+//         }
+//     }
+// }
+// impl Add for ComplexType {
+//     type Output = ComplexType;
 
-    fn add(self, rhs: Self) -> Self::Output {
-        match self {
-            Self::Double(c) => Self::Double(c + self.unpack_double(rhs)),
-            Self::Big(ref c) => Self::Big(c.clone() + self.unpack_big(rhs))
-        }
-    }
-}
-impl Sub for ComplexType {
-    type Output = ComplexType;
+//     fn add(self, rhs: Self) -> Self::Output {
+//         match self {
+//             Self::Double(c) => Self::Double(c + self.unpack_double(rhs)),
+//             Self::Big(ref c) => Self::Big(c.clone() + self.unpack_big(rhs))
+//         }
+//     }
+// }
+// impl Sub for ComplexType {
+//     type Output = ComplexType;
 
-    fn sub(self, rhs: Self) -> Self::Output {
-        match self {
-            Self::Double(c) => Self::Double(c - self.unpack_double(rhs)),
-            Self::Big(ref c) => Self::Big(c.clone() - self.unpack_big(rhs))
-        }
-    }
-}
-impl Mul for ComplexType {
-    type Output = ComplexType;
+//     fn sub(self, rhs: Self) -> Self::Output {
+//         match self {
+//             Self::Double(c) => Self::Double(c - self.unpack_double(rhs)),
+//             Self::Big(ref c) => Self::Big(c.clone() - self.unpack_big(rhs))
+//         }
+//     }
+// }
+// impl Mul for ComplexType {
+//     type Output = ComplexType;
 
-    fn mul(self, rhs: Self) -> Self::Output {
-        match self {
-            Self::Double(c) => Self::Double(c * self.unpack_double(rhs)),
-            Self::Big(ref c) => Self::Big(c.clone() * self.unpack_big(rhs))
-        }
-    }
-}
-impl Mul<f64> for ComplexType {
-    type Output = ComplexType;
+//     fn mul(self, rhs: Self) -> Self::Output {
+//         match self {
+//             Self::Double(c) => Self::Double(c * self.unpack_double(rhs)),
+//             Self::Big(ref c) => Self::Big(c.clone() * self.unpack_big(rhs))
+//         }
+//     }
+// }
+// impl Mul<f64> for ComplexType {
+//     type Output = ComplexType;
 
-    fn mul(self, rhs: f64) -> Self::Output {
-        match self {
-            Self::Double(c) => Self::Double(c * rhs),
-            Self::Big(c) => Self::Big(c * rhs)
-        }
-    }
-}
-impl Div for ComplexType {
-    type Output = ComplexType;
+//     fn mul(self, rhs: f64) -> Self::Output {
+//         match self {
+//             Self::Double(c) => Self::Double(c * rhs),
+//             Self::Big(c) => Self::Big(c * rhs)
+//         }
+//     }
+// }
+// impl Div for ComplexType {
+//     type Output = ComplexType;
 
-    fn div(self, rhs: Self) -> Self::Output {
-        match self {
-            Self::Double(c) => Self::Double(c / self.unpack_double(rhs)),
-            Self::Big(ref c) => Self::Big(c.clone() / self.unpack_big(rhs))
-        }
-    }
-}
-impl Div<f64> for ComplexType {
-    type Output = ComplexType;
+//     fn div(self, rhs: Self) -> Self::Output {
+//         match self {
+//             Self::Double(c) => Self::Double(c / self.unpack_double(rhs)),
+//             Self::Big(ref c) => Self::Big(c.clone() / self.unpack_big(rhs))
+//         }
+//     }
+// }
+// impl Div<f64> for ComplexType {
+//     type Output = ComplexType;
 
-    fn div(self, rhs: f64) -> Self::Output {
-        match self {
-            Self::Double(c) => Self::Double(c / rhs),
-            Self::Big(c) => Self::Big(c / rhs)
-        }
-    }
-}
+//     fn div(self, rhs: f64) -> Self::Output {
+//         match self {
+//             Self::Double(c) => Self::Double(c / rhs),
+//             Self::Big(c) => Self::Big(c / rhs)
+//         }
+//     }
+// }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Complex {
@@ -224,6 +224,16 @@ impl Complex {
         }
 
         Complex::new( real, im )
+    }
+
+    /// returns the real part of the number as an f64
+    pub fn real_f64(&self) -> f64 {
+        self.real
+    }
+
+    /// returns the imaginary part of the number as an f64
+    pub fn im_f64(&self) -> f64 {
+        self.im
     }
 }
 impl ComplexNumber for Complex {
@@ -319,6 +329,16 @@ impl Div<f64> for Complex {
         }
     }
 }
+impl<'l> Div<f64> for &'l Complex {
+    type Output = Complex;
+
+    fn div(self, rhs: f64) -> Self::Output {
+        Complex {
+            real: self.real / rhs,
+            im: self.im / rhs
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BigComplex {
@@ -356,12 +376,22 @@ impl BigComplex {
             im: self.im.to_f64().value()
         }
     }
+
+    /// returns the real part of the number as an f64
+    pub fn real_f64(&self) -> f64 {
+        self.real.to_f64().value()
+    }
+
+    /// returns the imaginary part of the number as an f64
+    pub fn im_f64(&self) -> f64 {
+        self.im.to_f64().value()
+    }
 }
 impl ComplexNumber for BigComplex {
     fn square(&self) -> Self {
         BigComplex { 
             real: self.real.square() - self.im.square(), 
-            im: FBig::try_from(2.0).unwrap() * self.real.clone() * self.im.clone()
+            im: (FBig::ONE + FBig::ONE) * &self.real * &self.im
         }
     }
 
@@ -398,6 +428,26 @@ impl Add for BigComplex {
         }
     }
 }
+impl<'l, 'r> Add<&'r BigComplex> for &'l BigComplex {
+    type Output = BigComplex;
+
+    fn add(self, rhs: &'r BigComplex) -> Self::Output {
+        BigComplex {
+            real: &self.real + &rhs.real,
+            im: &self.im + &rhs.im
+        }
+    }
+}
+impl<'r> Add<&'r BigComplex> for BigComplex {
+    type Output = BigComplex;
+
+    fn add(self, rhs: &'r BigComplex) -> Self::Output {
+        BigComplex {
+            real: &self.real + &rhs.real,
+            im: &self.im + &rhs.im
+        }
+    }
+}
 impl Sub for BigComplex {
     type Output = BigComplex;
 
@@ -408,13 +458,43 @@ impl Sub for BigComplex {
         }
     }
 }
+impl<'l, 'r> Sub<&'r BigComplex> for &'l BigComplex {
+    type Output = BigComplex;
+
+    fn sub(self, rhs: &'r BigComplex) -> Self::Output {
+        BigComplex {
+            real: &self.real - &rhs.real,
+            im: &self.im - &rhs.im
+        }
+    }
+}
 impl Mul for BigComplex {
     type Output = BigComplex;
 
     fn mul(self, rhs: Self) -> Self::Output {
         BigComplex {
-            real: self.real.clone() * rhs.real.clone() - self.im.clone() * rhs.im.clone(),
+            real: &self.real * &rhs.real - &self.im * &rhs.im,
             im: self.real * rhs.im + self.im * rhs.real
+        }
+    }
+}
+impl<'l, 'r> Mul<&'r BigComplex> for &'l BigComplex {
+    type Output = BigComplex;
+
+    fn mul(self, rhs: &'r BigComplex) -> Self::Output {
+        BigComplex {
+            real: &self.real * &rhs.real - &self.im * &rhs.im,
+            im: &self.real * &rhs.im + &self.im * &rhs.real
+        }
+    }
+}
+impl<'l> Mul<BigComplex> for &'l BigComplex {
+    type Output = BigComplex;
+
+    fn mul(self, rhs: BigComplex) -> Self::Output {
+        BigComplex {
+            real: &self.real * &rhs.real - &self.im * &rhs.im,
+            im: &self.real * &rhs.im + &self.im * &rhs.real
         }
     }
 }
@@ -424,8 +504,19 @@ impl Mul<f64> for BigComplex {
     fn mul(self, rhs: f64) -> Self::Output {
         let rhs = FBig::try_from(rhs).unwrap();
         BigComplex {
-            real: self.real * rhs.clone(),
+            real: self.real * &rhs,
             im: self.im * rhs
+        }
+    }
+}
+impl<'l> Mul<f64> for &'l BigComplex {
+    type Output = BigComplex;
+
+    fn mul(self, rhs: f64) -> Self::Output {
+        let rhs = FBig::try_from(rhs).unwrap();
+        BigComplex {
+            real: &self.real * &rhs,
+            im: &self.im * rhs
         }
     }
 }
@@ -434,8 +525,18 @@ impl Mul<dashu_float::FBig> for BigComplex {
 
     fn mul(self, rhs: dashu_float::FBig) -> Self::Output {
         BigComplex {
-            real: self.real * rhs.clone(),
+            real: self.real * &rhs,
             im: self.im * rhs
+        }
+    }
+}
+impl<'r> Mul<&'r dashu_float::FBig> for BigComplex {
+    type Output = BigComplex;
+
+    fn mul(self, rhs: &dashu_float::FBig) -> Self::Output {
+        BigComplex {
+            real: &self.real * rhs,
+            im: &self.im * rhs
         }
     }
 }
@@ -446,7 +547,19 @@ impl Div for BigComplex {
         let n = self * rhs.conjugate();
         let d = rhs.real.square() + rhs.im.square();
         BigComplex {
-            real: n.real / d.clone(),
+            real: n.real / &d,
+            im: n.im / d
+        }
+    }
+}
+impl<'l, 'r> Div<&'r BigComplex> for &'l BigComplex {
+    type Output = BigComplex;
+
+    fn div(self, rhs: &'r BigComplex) -> Self::Output {
+        let n = self * &rhs.conjugate();
+        let d = rhs.real.square() + rhs.im.square();
+        BigComplex {
+            real: n.real / &d,
             im: n.im / d
         }
     }
@@ -457,8 +570,19 @@ impl Div<f64> for BigComplex {
     fn div(self, rhs: f64) -> Self::Output {
         let rhs = FBig::try_from(rhs).unwrap();
         BigComplex {
-            real: self.real / rhs.clone(),
+            real: self.real / &rhs,
             im: self.im / rhs
+        }
+    }
+}
+impl<'l> Div<f64> for &'l BigComplex {
+    type Output = BigComplex;
+
+    fn div(self, rhs: f64) -> Self::Output {
+        let rhs = FBig::try_from(rhs).unwrap();
+        BigComplex {
+            real: &self.real / &rhs,
+            im: &self.im / rhs
         }
     }
 }

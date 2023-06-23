@@ -61,8 +61,6 @@ async fn main() {
     // visualiser.load(0.000000000000040685052352904394, -1.758889768238364, -0.01908561816083628, 3000.0);
     visualiser.load(0.005, -1.7492892108246816, 3.46877435179622e-6, 500.0);
 
-    // quality loss: 0.00000000000000028889130073327763
-
     let mut app = App::new(visualiser).await;
     app.run().await;
 }
