@@ -30,6 +30,8 @@ pub trait ComplexNumber {
     fn arg(&self) -> f64;
     /// the squared distance between the complex number and another
     fn distance2_to(&self, other: ComplexType) -> f64;
+    fn update_real_from_string(&mut self, new: String);
+    fn update_im_from_string(&mut self, new: String);
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,11 +56,25 @@ impl ComplexType {
         }
     }
 
+    pub fn real_string(&self) -> String {
+        match self {
+            ComplexType::Double(c) => c.real.to_string(),
+            ComplexType::Big(c) => c.real.clone().with_base::<10>().value().to_string()
+        }
+    }
+
     /// returns the imaginary part of the number as an f64, regarless of type
     pub fn im_f64(&self) -> f64 {
         match self {
             ComplexType::Double(c) => c.im,
             ComplexType::Big(c) => c.im.to_f64().value()
+        }
+    }
+
+    pub fn im_string(&self) -> String {
+        match self {
+            ComplexType::Double(c) => c.im.to_string(),
+            ComplexType::Big(c) => c.im.clone().with_base::<10>().value().to_string()
         }
     }
 
@@ -97,6 +113,19 @@ impl ComplexType {
         match &self {
             ComplexType::Big(c) => ComplexType::Double(c.to_complex()),
             ComplexType::Double(_) => self.clone(),
+        }
+    }
+
+    pub fn update_real_from_string(&mut self, new: String) {
+        match self {
+            ComplexType::Double(ref mut c) => c.update_real_from_string(new),
+            ComplexType::Big(ref mut c) => c.update_real_from_string(new)
+        }
+    }
+    pub fn update_im_from_string(&mut self, new: String) {
+        match self {
+            ComplexType::Double(ref mut c) => c.update_im_from_string(new),
+            ComplexType::Big(ref mut c) => c.update_im_from_string(new)
         }
     }
 }
@@ -209,6 +238,7 @@ impl Complex {
 
     #[allow(unused)]
     /// raise the complex number to a given power
+    /// TODO: use demoivre's instead
     pub fn pow(&self, n: u32) -> Self {
         let (mut real , mut im) = (0., 0.);
         for i in 0..=n {
@@ -264,6 +294,17 @@ impl ComplexNumber for Complex {
         match other {
             ComplexType::Double(c) => (*self-c).abs_squared(),
             ComplexType::Big(c) => (BigComplex::from_complex(*self)-c).abs_squared()
+        }
+    }
+
+    fn update_real_from_string(&mut self, new: String) {
+        if let Ok(new) = new.parse() {
+            self.real = new;
+        }
+    }
+    fn update_im_from_string(&mut self, new: String) {
+        if let Ok(new) = new.parse() {
+            self.im = new;
         }
     }
 }
@@ -354,8 +395,8 @@ impl BigComplex {
     /// double precision Complex number
     pub fn from_complex(c: Complex) -> BigComplex {
         BigComplex {
-            real: FBig::try_from(c.real).unwrap(),
-            im: FBig::try_from(c.im).unwrap()
+            real: FBig::try_from(c.real).unwrap().with_precision(100).value(),
+            im: FBig::try_from(c.im).unwrap().with_precision(100).value()
         }
     }
 
@@ -363,8 +404,19 @@ impl BigComplex {
     /// given f64 numbers
     pub fn from_f64s(real: f64, im: f64) -> BigComplex {
         BigComplex {
-            real: FBig::try_from(real).unwrap(),
-            im: FBig::try_from(im).unwrap()
+            real: FBig::try_from(real).unwrap().with_precision(100).value(),
+            im: FBig::try_from(im).unwrap().with_precision(100).value()
+        }
+    }
+
+    pub fn from_string_base10(real: &str, im: &str) -> BigComplex {
+        // BigComplex { 
+        //     real: FBig::from_str_native(real).unwrap().with_precision(100).value(), 
+        //     im: FBig::from_str_native(im).unwrap().with_precision(100).value()
+        // }
+        BigComplex {
+            real: FBig::<dashu_float::round::mode::Zero, 10>::from_str_native(real).unwrap().with_base_and_precision::<2>(100).value(),
+            im: FBig::<dashu_float::round::mode::Zero, 10>::from_str_native(im).unwrap().with_base_and_precision::<2>(100).value()
         }
     }
 
@@ -415,6 +467,19 @@ impl ComplexNumber for BigComplex {
         match other {
             ComplexType::Double(c) => (self.clone()-BigComplex::from_complex(c)).abs_squared(),
             ComplexType::Big(c) => (self.clone()-c).abs_squared()
+        }
+    }
+
+    fn update_real_from_string(&mut self, new: String) {
+        println!("{}", new);
+        if let Ok(new) = FBig::<dashu_float::round::mode::Zero, 10>::from_str_native(&new) {
+            self.real = new.with_base_and_precision::<2>(100).value();
+        }
+        println!("{}", self.real.clone().with_base::<10>().value());
+    }
+    fn update_im_from_string(&mut self, new: String) {
+        if let Ok(new) = FBig::<dashu_float::round::mode::Zero, 10>::from_str_native(&new) {
+            self.im = new.with_base_and_precision::<2>(100).value();
         }
     }
 }

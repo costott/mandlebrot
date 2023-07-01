@@ -6,7 +6,10 @@
 
 use macroquad::prelude::*;
 
+use std::ops::Range;
+
 use super::*;
+use super::menu::DropDownType;
 
 fn i_to_world_index(i: u32, colour_map: &Vec<Color>, length: f32, max_iterations: f32) -> f32 {
     (i as f32 / (max_iterations+1.)) * (1000. / length) * (colour_map.len()-1) as f32
@@ -110,7 +113,52 @@ fn diverges_implementors_big(c: BigComplex, max_iterations: u32, implementations
     for im in implementations.iter_mut() {
         im.in_set_big(&z);
     }
-    return true;
+    true
+}
+
+/// analyse the given complex number, letting the implementors
+/// calculate their outputs
+/// 
+/// **using mandelbrot perturbation theory**
+/// 
+/// # Returns
+/// returns if the point is in the set or not
+fn diverges_implementors_big_perturbation(dc: Complex, ref_z: &Vec<Complex>, max_ref_iteration: usize, max_iterations: u32, implementations: &mut Vec<LayerImplementation>) -> bool {
+    let mut dz = Complex::new(0., 0.);
+    // https://fractalforums.org/fractal-mathematics-and-new-theories/28/another-solution-to-perturbation-glitches/4360/msg29835#msg29835
+    let mut ref_iteration = 0;
+
+    for im in implementations.iter_mut() {
+        im.before(max_iterations);
+    }
+
+    for i in 0..max_iterations {
+        dz =  ref_z[ref_iteration] * dz * 2. + dz.square() + dc;
+        ref_iteration += 1;
+
+        let z2 = ref_z[ref_iteration] + dz;
+
+        if z2.abs_squared() > BAILOUT_ORBIT_TRAP {
+            for im in implementations.iter_mut() {
+                im.out_set_double(z2, i);
+            }
+            return false;
+        }
+        if z2.abs_squared() < dz.abs_squared() || ref_iteration == max_ref_iteration {
+            dz = z2;
+            ref_iteration = 0;
+        }
+
+        for im in implementations.iter_mut() {
+            im.during_double(z2, i);
+        }
+    }
+
+    for im in implementations.iter_mut() {
+        im.in_set_double(ref_z[ref_iteration] + dz);
+    }
+
+    true
 }
 
 #[derive(Clone)]
@@ -123,6 +171,16 @@ pub enum LayerType {
     ShadingOrbitTrap(OrbitTrapType)
 }
 impl LayerType {
+    pub fn get_string(&self) -> String{
+        String::from(match self {
+            LayerType::Colour => "Colour",
+            LayerType::ColourOrbitTrap(_) => "Colour (orbit trap)",
+            LayerType::Shading => "Shading",
+            LayerType::Shading3D => "Shading 3D",
+            LayerType::ShadingOrbitTrap(_) => "Shading (orbit trap)"
+        })
+    }
+
     /// returns whether the layer is a shading layer
     pub fn shading_layer(&self) -> bool {
         match self {
@@ -130,6 +188,65 @@ impl LayerType {
                 true
             },
             _ => false
+        }
+    }
+
+    fn get_default_orbit_trap() -> OrbitTrapType {
+        OrbitTrapType::Point(OrbitTrapPoint::default())
+    }
+
+    pub fn is_orbit_trap(&self) -> bool {
+        match self  {
+            LayerType::ColourOrbitTrap(_) | &LayerType::ShadingOrbitTrap(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn get_orbit_trap(&mut self) -> Result<&mut OrbitTrapType, &str> {
+        match self {
+            LayerType::ColourOrbitTrap(trap) | LayerType::ShadingOrbitTrap(trap) => Ok(trap),
+            _ => Err("not a trap")
+        }
+    }
+}
+impl DropDownType<LayerType> for LayerType {
+    fn get_variants() -> Vec<LayerType> {
+        vec![
+            LayerType::Colour, 
+            LayerType::ColourOrbitTrap(LayerType::get_default_orbit_trap()),
+            LayerType::Shading,
+            LayerType::Shading3D,
+            LayerType::ShadingOrbitTrap(LayerType::get_default_orbit_trap())
+        ]
+    }
+
+    fn get_string(&self) -> String {
+        self.get_string()
+    }
+}
+impl PartialEq for LayerType {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            LayerType::Colour => match other  {
+                LayerType::Colour => true,
+                _ => false
+            },
+            LayerType::ColourOrbitTrap(_) => match other {
+                LayerType::ColourOrbitTrap(_) => true,
+                _ => false
+            },
+            LayerType::Shading => match other {
+                LayerType::Shading => true,
+                _ => false
+            },
+            LayerType::Shading3D => match other {
+                LayerType::Shading3D => true,
+                _ => false
+            },
+            LayerType::ShadingOrbitTrap(_) => match other {
+                LayerType::ShadingOrbitTrap(_) => true,
+                _ => false
+            }
         }
     }
 }
@@ -163,11 +280,6 @@ trait LayerImplementor {
 
     /// output the generated value
     fn get_output(&self) -> f64;
-
-    /// converts all numbers used to arbitrary precision
-    fn make_big(&mut self) {}
-    /// converts all numbers used to double precision
-    fn make_double(&mut self) {}
 }
 
 // idk how to do polymorphism well so this is my best shot 
@@ -243,22 +355,6 @@ impl LayerImplementor for LayerImplementation {
             LayerImplementation::ColourImplemetor(im) => im.get_output(),
             LayerImplementation::OrbitTrapImplementor(im) => im.get_output(),
             LayerImplementation::Shading3DImplementor(im) => im.get_output()
-        }
-    }
-
-    fn make_big(&mut self) {
-        match self {
-            LayerImplementation::ColourImplemetor(im) => im.make_big(),
-            LayerImplementation::OrbitTrapImplementor(im) => im.make_big(),
-            LayerImplementation::Shading3DImplementor(im) => im.make_big()
-        }
-    }
-
-    fn make_double(&mut self) {
-        match self {
-            LayerImplementation::ColourImplemetor(im) => im.make_double(),
-            LayerImplementation::OrbitTrapImplementor(im) => im.make_double(),
-            LayerImplementation::Shading3DImplementor(im) => im.make_double()
         }
     }
 }
@@ -532,9 +628,27 @@ impl Layers {
     /// a shading layer is being applied to a part of the set
     /// with no other layers acting in the same layer
     pub fn new(layers: Vec<Layer>) -> Layers {
+        let valid = Layers::valid_layers(&layers);
+        if let Err(e) = valid {
+            panic!("{e}");
+        }
+
+        let mut layers = layers;
+        Layers::place_constraints(&mut layers);
+        for (i, layer) in layers.iter_mut().enumerate() {
+            layer.name = format!("Layer {}", i + 1);
+        }
+
+        let (implementors, implementor_map) = make_implementors(&layers);
+        
+        Layers { layers, implementors, implementor_map, arb_precision: false }
+    }
+
+    /// returns if the given layer configuration is allowed or not
+    fn valid_layers(layers: &Vec<Layer>) -> Result<bool, &'static str> {
         // has to be multiple layers
         if layers.len() == 0 {
-            panic!("there must be at least 1 layer");
+            return Err("there must be at least 1 layer");
         }
 
         // the first layer can't be a shading layer
@@ -543,15 +657,16 @@ impl Layers {
             LayerType::ShadingOrbitTrap(_) => 1,
             _ => 0
         } == 1 {
-            panic!("the first layer can't be a shading layer")
+            return Err("the first layer can't be a shading layer");
         }
 
+        // shading layers have to shade colours
         let mut non_shade_in_set = false;
         let mut non_shade_out_set = false;
         for layer in layers.iter() {
             if layer.layer_type.shading_layer() { 
                 if layer.layer_range.layer_covered(non_shade_in_set, non_shade_out_set) { continue }
-                panic!("Shading layer exists that isn't covered by another layer");
+                return Err("Shading layer exists that isn't covered by another layer");
             }
             match layer.layer_range {
                 LayerRange::Both => {
@@ -567,9 +682,173 @@ impl Layers {
             }
         }
 
-        let (implementors, implementor_map) = make_implementors(&layers);
-        
-        Layers { layers, implementors, implementor_map, arb_precision: false }
+        Ok(true)
+    }
+
+    fn clear_constraints(layers: &mut Vec<Layer>) {
+        for layer in layers {
+            layer.clear_contraints();
+        }
+    }
+
+    fn get_colours_before_first_shade(layers: &Vec<Layer>, first_shade_i: usize, in_set: bool) -> (usize, usize) {
+        let mut first_colour_i = 0;
+        let mut colours_before_first_shade = 0;
+        for i in 0..first_shade_i {
+            let layer = &layers[i];
+            if !layer.layer_type.shading_layer() && layer.layer_range.layer_applies(in_set) {
+                colours_before_first_shade += 1;
+                if first_colour_i == 0 {
+                    first_colour_i = i;
+                }
+            }
+        }
+
+        (first_colour_i, colours_before_first_shade)
+    }
+
+    fn place_range_constraints(layers: &mut Vec<Layer>) {
+        if layers.len() == 1 {
+            let layer = &mut layers[0];
+            // ensure this layer exists in some form
+            layer.set_range_constraint(LayerRange::InSet);
+            layer.set_range_constraint(LayerRange::OutSet);
+            layer.set_range_constraint(LayerRange::Both);
+            return;
+        }
+
+        let colour_in_set: usize = layers.iter().filter(|l| {
+            !l.layer_type.shading_layer() && l.layer_range.layer_applies(true)
+        }).collect::<Vec<&Layer>>().len();
+        let colour_out_set: usize = layers.iter().filter(|l| {
+            !l.layer_type.shading_layer() && l.layer_range.layer_applies(false)
+        }).collect::<Vec<&Layer>>().len();
+        // force shading layers to stay in their ranges if no colour layer in other range
+        for layer in layers.iter_mut() {
+            if colour_in_set == 0 && layer.layer_type.shading_layer() && layer.layer_range.layer_applies(false) {
+                layer.set_range_constraint(LayerRange::OutSet);
+            }
+            if colour_out_set == 0 && layer.layer_type.shading_layer() && layer.layer_range.layer_applies(true) {
+                layer.set_range_constraint(LayerRange::InSet);
+            }
+        }
+
+        let mut first_shade_in_set: Option<usize> = None;
+        let mut first_shade_out_set: Option<usize> = None;
+        for (i, layer) in layers.iter().enumerate() {
+            if layer.layer_type.shading_layer() && layer.layer_range.layer_applies(true) && first_shade_in_set.is_none() {
+                first_shade_in_set = Some(i);
+            }
+            if layer.layer_type.shading_layer() && layer.layer_range.layer_applies(false) && first_shade_out_set.is_none() {
+                first_shade_out_set = Some(i);
+            }
+        }
+
+        if let Some(first_shade_i) = first_shade_in_set {
+            let (first_colour_i, colours_before_first_shade) = 
+                Layers::get_colours_before_first_shade(layers, first_shade_i, true);
+            if colours_before_first_shade == 1 {
+                layers[first_colour_i].set_range_constraint(LayerRange::InSet);
+            }
+        }   
+        if let Some(first_shade_i) = first_shade_out_set {
+            let (first_colour_i, colours_before_first_shade) = 
+                Layers::get_colours_before_first_shade(layers, first_shade_i, false);
+            if colours_before_first_shade == 1 {
+                layers[first_colour_i].set_range_constraint(LayerRange::OutSet);
+            }
+        }
+    }
+
+    fn place_position_constraints(layers: &mut Vec<Layer>) {
+        let end = layers.len()+1;
+
+        let mut first_shade_in_set: Option<usize> = None;
+        let mut first_colour_in_set: Option<usize> = None;
+        let mut first_shade_out_set: Option<usize> = None;
+        let mut first_colour_out_set: Option<usize> = None;
+        for (i, layer) in layers.iter_mut().enumerate() {
+            // find first colour layers
+            if !layer.layer_type.shading_layer() && layer.layer_range.layer_applies(true) && first_colour_in_set.is_none() {
+                first_colour_in_set = Some(i);
+            }
+            if !layer.layer_type.shading_layer() && layer.layer_range.layer_applies(false) && first_colour_out_set.is_none() {
+                first_colour_out_set = Some(i);
+            }
+
+            // set shading layers' constraints to never be before the first colour
+            if layer.layer_type.shading_layer() && layer.layer_range.layer_applies(true){
+                layer.set_position_constraint(first_colour_in_set.unwrap()+1..end);
+                if first_shade_in_set.is_none() {
+                    first_shade_in_set = Some(i);
+                }
+            }
+            if layer.layer_type.shading_layer() && layer.layer_range.layer_applies(false){
+                layer.set_position_constraint(first_colour_out_set.unwrap()+1..end);
+                if first_shade_out_set.is_none() {
+                    first_shade_out_set = Some(i);
+                }
+            }    
+        }
+
+        // unwrap will always succeed as for a shading layer to apply 
+        // a colour layer has to also be applied before
+        if let Some(shade_i) = first_shade_in_set {
+            layers.iter_mut().filter(|l| {
+                !l.layer_type.shading_layer() && l.layer_range.layer_applies(true)
+            }).collect::<Vec<&mut Layer>>().first_mut().unwrap().set_position_constraint(0..shade_i+1);
+        }
+        if let Some(shade_i) = first_shade_out_set {
+            layers.iter_mut().filter(|l| {
+                !l.layer_type.shading_layer() && l.layer_range.layer_applies(false)
+            }).collect::<Vec<&mut Layer>>().first_mut().unwrap().set_position_constraint(0..shade_i+1);
+        }
+    }
+
+    pub fn place_constraints(layers: &mut Vec<Layer>) {
+        Layers::clear_constraints(layers);
+
+        Layers::place_range_constraints(layers);
+        Layers::place_position_constraints(layers);
+    }
+
+    pub fn update_implementors(&mut self) {
+        (self.implementors, self.implementor_map) = make_implementors(&self.layers);
+    }
+
+    pub fn add_layer(&mut self, layer: &Layer) {
+        let mut layer = layer.clone();
+        layer.name = format!("Layer {}", self.layers.len()+1);
+        self.layers.push(layer);
+
+        Layers::place_constraints(&mut self.layers);
+        self.update_implementors();
+    }
+
+    /// take the layer at the take_i from its position and insert it at the dest_i
+    pub fn reorder_layer(&mut self, take_i: usize, dest_i: usize) {
+        let to_insert = self.layers[take_i].clone();
+        self.layers.remove(take_i);
+        self.layers.insert(dest_i, to_insert);
+
+        self.update_implementors();
+    }
+
+    pub fn delete_layer(&mut self, index: usize) {
+        self.layers.remove(index);
+
+        self.update_implementors();
+    }
+
+    pub fn change_layer_type(&mut self, index: usize, new_type: LayerType) {
+        if !self.layers[index].can_change_type(&new_type) { return }
+        let old_type = self.layers[index].layer_type.clone();
+        self.layers[index].layer_type = new_type;
+        if Layers::valid_layers(&self.layers).is_err() {
+            self.layers[index].layer_type = old_type
+        }
+
+        self.update_implementors();
     }
 
     /// makes sure all the palletes for the layers
@@ -604,9 +883,25 @@ impl Layers {
             None => BLACK
         }
     }
+
+    pub fn colour_pixel_implementors_perturbed(&self, dc: Complex, ref_z: &Vec<Complex>, max_ref_iteration: usize, max_iterations: u32) -> Color {
+        let mut implementors = self.implementors.clone();
+        let in_set = diverges_implementors_big_perturbation(dc, ref_z, max_ref_iteration, max_iterations, &mut implementors);
+
+        let mut colour: Option<Color> = None;
+        for (i, layer) in self.layers.iter().enumerate() {
+            let output = implementors[self.implementor_map[i]].get_output();
+            colour = layer.colour_implementors(colour, output, in_set);
+        }
+
+        match colour {
+            Some(c) => c,
+            None => BLACK
+        }
+    }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 /// specifies the range of the mandelbrot set a layer is applied to
 pub enum LayerRange {
     InSet,
@@ -632,12 +927,30 @@ impl LayerRange {
         }
     }
 }
+impl DropDownType<LayerRange> for LayerRange {
+    fn get_variants() -> Vec<LayerRange> {
+        vec![LayerRange::InSet, LayerRange::OutSet, LayerRange::Both]
+    }
+
+    fn get_string(&self) -> String {
+        String::from(match self {
+            LayerRange::InSet => "In Set",
+            LayerRange::OutSet => "Out Set",
+            LayerRange::Both => "Both"
+        })
+    }
+}
 
 /// A colouring layer for the mandelbrot set
 #[derive(Clone)]
 pub struct Layer {
+    pub name: String,
     pub layer_type: LayerType,
     pub layer_range: LayerRange,
+    /// stores the only ranges this layer is allowed
+    range_constraints: Option<Vec<LayerRange>>,
+    /// stores the maximum position the layer's allowed to be at
+    position_constraint: Option<Range<usize>>,
     pub strength: f32,
     colour_map: Vec<Color>,
     pallete_length: f32,
@@ -663,15 +976,84 @@ impl Layer {
     ) -> Layer {
         Layer {
             layer_type, layer_range, strength, colour_map, pallete_length,
-            pallete: Vec::new()
+            range_constraints: None,
+            position_constraint: None,
+            pallete: Vec::new(),
+            name: String::from("Layer")
         }
     }
 
-    pub fn generate_pallete(&mut self, max_iterations: f32) {
-        match self.layer_type {
-            LayerType::Shading3D => {return},
-            _ => {}
+    fn set_range_constraint(&mut self, constraint: LayerRange) {
+        match self.range_constraints {
+            Some(ref mut v) => v.push(constraint),
+            None => {
+                self.range_constraints = Some(vec![constraint])
+            }
         }
+    }
+    
+    fn set_position_constraint(&mut self, constraint: Range<usize>) {
+        self.position_constraint = Some(constraint);
+    }
+
+    fn clear_contraints(&mut self) {
+        self.range_constraints = None;
+        self.position_constraint = None;
+    }   
+    
+    /// looks at its constraints to see if it could be the given range
+    fn range_allowed(&self, range: LayerRange) -> bool {
+        match self.range_constraints {
+            None => true,
+            Some(ref v) => {
+                let mut in_set = false;
+                let mut out_set = false;
+                for layer in v {
+                    if layer.layer_applies(true) {
+                        in_set = true;
+                    }
+                    if layer.layer_applies(false) {
+                        out_set = true;
+                    }
+                }
+
+                match (in_set, out_set) {
+                    (false, false) => true,
+                    (true, false) => {
+                        if self.layer_type.shading_layer() { range == LayerRange::InSet}
+                        else {range.layer_applies(true)}
+                    },
+                    (false, true) => {
+                        if self.layer_type.shading_layer() { range == LayerRange::InSet }
+                        else {range.layer_applies(false)}
+                    },
+                    (true, true) => range == LayerRange::Both
+                }
+            }
+        }
+    }
+
+    /// looks at its constraints to see if it could be in the given position
+    pub fn position_allowed(&self, position: usize) -> bool {
+        match &self.position_constraint {
+            None => true,
+            Some(pos) => pos.contains(&position)
+        }
+    }
+
+    pub fn can_delete(&self) -> bool {
+        return self.range_constraints.is_none() || self.layer_type.shading_layer()
+    }
+
+    pub fn can_change_type(&self, new_type: &LayerType) -> bool {
+        if self.layer_type.shading_layer() { return true }
+
+        if !new_type.shading_layer() { return true }
+
+        self.range_constraints.is_none()
+    }
+
+    pub fn generate_pallete(&mut self, max_iterations: f32) {
         // idk why the +1 is needed here but not before but it doesn't work without it 
         if self.pallete.len() == max_iterations as usize + 1 {return}
         self.pallete = make_pallete(&self.colour_map, self.pallete_length, max_iterations);
@@ -686,6 +1068,18 @@ impl Layer {
     pub fn get_pallete_length(&self) -> f32 {
         self.pallete_length
     } 
+
+    pub fn change_strength(&mut self, new: f32) -> bool {
+        if self.strength == new { return false }
+        self.strength = new;
+        return true;
+    }
+
+    pub fn change_range(&mut self, new: LayerRange) {
+        if self.range_allowed(new) {
+            self.layer_range = new;
+        }
+    }
 
     /// calculate the colour for the Colour layer type
     fn colour(&self, diverge_num: f64) -> Color {
@@ -724,7 +1118,7 @@ impl Layer {
     fn final_colour(&self, colour: Option<Color>, this_colour: Color) -> Option<Color> {
         Some(match colour {
             Some(c) => interpolate_colour(c, this_colour, self.strength),
-            None => this_colour
+            None => interpolate_colour(BLACK, this_colour, self.strength)
         })
     }
 
