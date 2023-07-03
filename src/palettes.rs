@@ -9,12 +9,14 @@ use macroquad::prelude::*;
 use crate::{menu::DropDownType, interpolate_colour, escape_time};
 use std::collections::HashSet;
 
-/// the number of colours per percentage of a palette length
-/// for the repeated mapping type
-const PALETTE_DEPTH: usize = 5;
+/// the number of iteration values in the palette
+/// for a 100% pallete length for the repeated mapping type 
+/// i.e. 500 => 500 iterations = 100% palette length
+/// in other words, what the pallete length represents a fraction of
+const PALETTE_DEPTH: usize = 500;
 /// the minimum distance between percentages for a new point 
 /// to be able to be added
-const MIN_ADD_PERCENT: f32 = 10.;
+const MIN_ADD_PERCENT: f32 = 0.1;
 
 #[derive(Clone, PartialEq)]
 pub enum MappingType {
@@ -36,8 +38,6 @@ impl DropDownType<MappingType> for MappingType {
     }
 }
 
-// this has to be 0 and 100 not 0.0 to 1.0 as when sorting the percentage
-// needs to be used as a key, which only supports integers
 /// a colour and position (between 0 and 100) in a colour map
 #[derive(Clone, Copy)]
 pub struct ColourPoint {
@@ -46,16 +46,16 @@ pub struct ColourPoint {
 }
 impl ColourPoint {
     fn prev_percent(&self) -> ColourPoint {
-        ColourPoint { colour: self.colour, percent: self.percent - 100. }
+        ColourPoint { colour: self.colour, percent: self.percent - 1. }
     }
 
     fn next_percent(&self) -> ColourPoint {
-        ColourPoint { colour: self.colour, percent: self.percent + 100. }
+        ColourPoint { colour: self.colour, percent: self.percent + 1. }
     }
 
-    /// `clamp()`s the percentage between 0 and 100
+    /// `clamp()`s the percentage between 0 and 1
     fn valid_percent(&self) -> f32 {
-        self.percent.clamp(0., 100.)
+        self.percent.clamp(0., 1.)
     }
 }
 impl Into<ColourPoint> for (Color, f32) {
@@ -80,7 +80,7 @@ impl Palette {
     /// creates a new colour map from the given colour points
     pub fn new(colour_map: Vec<ColourPoint>, mapping_type: MappingType, palette_length: f32, offset: f32) -> Palette {
         assert!(colour_map.len() > 1);
-        assert!(0.0 <= palette_length && palette_length <= 100.0);
+        assert!(0.0 <= palette_length && palette_length <= 1.0);
         assert!(Palette::unique_point_positions(&colour_map));
 
         Palette { 
@@ -91,7 +91,7 @@ impl Palette {
 
     fn sort_colour_map(colour_map: &Vec<ColourPoint>) -> Vec<ColourPoint> {
         let mut sorted = colour_map.clone();
-        sorted.sort_by_key(|p| p.percent as u32);
+        sorted.sort_by_key(|p| (p.percent*100.) as u32);
 
         // add the two extremes to both sides so they link together
         let unique_sorted = sorted.clone();
@@ -109,9 +109,9 @@ impl Palette {
     /// creates a new colour map with evenly spaced colour points
     pub fn new_even(colours: Vec<Color>, mapping_type: MappingType, palette_length: f32, offset: f32) -> Palette {
         assert!(colours.len() > 1);
-        assert!(0.0 <= palette_length && palette_length <= 100.0);
+        assert!(0.0 <= palette_length && palette_length <= 1.0);
 
-        let pos = 100. / (colours.len()-1) as f32;
+        let pos = 1. / (colours.len()-1) as f32;
         let colour_map: Vec<ColourPoint> = colours.iter().enumerate()
             .map(|(i, c)| (*c, i as f32 * pos).into()).collect();
 
@@ -123,8 +123,8 @@ impl Palette {
 
     pub fn default() -> Palette {
         Palette {
-            colour_map: vec![(BLACK, 0.0).into(), (WHITE, 100.0).into()],
-            sorted_colour_map: vec![(BLACK, 0.0).into(), (WHITE, 100.0).into()],
+            colour_map: vec![(BLACK, 0.0).into(), (WHITE, 1.0).into()],
+            sorted_colour_map: vec![(BLACK, 0.0).into(), (WHITE, 1.0).into()],
             mapping_type: MappingType::Repeated,
             palette_length: 100.0,
             offset: 0.0,
@@ -137,7 +137,7 @@ impl Palette {
     }
 
     pub fn set_palette_length(&mut self, new: f32) -> bool {
-        assert!(0.0 <= new && new <= 100.);
+        assert!(0.0 <= new && new <= 1.);
         if self.palette_length == new { return false }
         self.palette_length = new;
         true
@@ -148,7 +148,7 @@ impl Palette {
     }
 
     pub fn set_offset(&mut self, new: f32) -> bool {
-        assert!(0.0 <= new && new <= 100.);
+        assert!(0.0 <= new && new <= 1.);
         if self.offset == new { return false }
         self.offset = new;
         true
@@ -157,7 +157,7 @@ impl Palette {
     /// add/delete from the palette length by change
     pub fn change_palette_length(&mut self, change: f32) {
         self.palette_length += change;
-        self.palette_length = self.palette_length.clamp(0., 100.);
+        self.palette_length = self.palette_length.clamp(0., 1.);
     }
 
     /// attempts to change a point's percentage
@@ -194,7 +194,7 @@ impl Palette {
                 percent_to_add = this_add;
             }
             // prioritises percentages closer to the midpoint
-            if this_diff == max_percent_diff && (this_add-50.).abs() < (percent_to_add-50.).abs() {
+            if this_diff == max_percent_diff && (this_add-0.5).abs() < (percent_to_add-0.5).abs() {
                 percent_to_add = this_add;
             }
         }
@@ -211,7 +211,7 @@ impl Palette {
             None => return,
             Some(p) => p
         };
-        let new_colour = self.get_colour_at_percentage(percent/100., false);
+        let new_colour = self.get_colour_at_percentage(percent, false);
 
         self.colour_map.push((new_colour, percent).into());
         self.sorted_colour_map = Palette::sort_colour_map(&self.colour_map);
@@ -244,13 +244,13 @@ impl Palette {
 
         // apply offset
         if offset {
-            percent += self.offset/100.;
+            percent += self.offset;
             percent = percent % 1.;
         }
 
         let mut next_i = self.sorted_colour_map.len()-1;
         for i in 0..self.sorted_colour_map.len() {
-            if self.sorted_colour_map[i].percent/100. > percent {
+            if self.sorted_colour_map[i].percent > percent {
                 next_i = i;
                 break;
             }
@@ -260,7 +260,7 @@ impl Palette {
         interpolate_colour(
             prev.colour, 
             next.colour, 
-            (percent - prev.percent/100.) / (next.percent/100. - prev.percent/100.)
+            (percent - prev.percent) / (next.percent - prev.percent)
         )
     }
 
@@ -270,7 +270,7 @@ impl Palette {
         for i in 0..=max_iterations {
             let total_percent = i as f32 / max_iterations as f32;
             // takes the total percent and converts it to a fraction of the palette length
-            let mut length_percent = ((total_percent * 100.) % self.palette_length) / self.palette_length;
+            let mut length_percent = (total_percent % self.palette_length) / self.palette_length;
             if self.palette_length == 0.0 {length_percent = 0.}
             palette.push(self.get_colour_at_percentage(length_percent, true));
         }

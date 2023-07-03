@@ -2928,7 +2928,7 @@ impl ColourPointEditor {
     fn new(colour_point: &ColourPoint, map_rect: Rect) -> ColourPointEditor {
         let width = screen_width()*PALETTEEDITOR_COLOUR_POINT_WIDTH;
         let select_width = screen_width()*PALETTEEDITOR_COLOUR_POINT_SELECT_WIDTH;
-        let x = map_rect.x - width/2. + (colour_point.percent/100.)*map_rect.w;
+        let x = map_rect.x - width/2. + colour_point.percent*map_rect.w;
 
         let outer_select_box = Rect::new(
             x + (width-select_width)/2.,
@@ -2966,7 +2966,7 @@ impl ColourPointEditor {
 
         match delta == 0.0 {
             true => None,
-            false => Some( ((self.rect.center().x - self.map_rect.x) / self.map_rect.w)*100. )
+            false => Some( (self.rect.center().x - self.map_rect.x) / self.map_rect.w )
         }
     }
 
@@ -3537,15 +3537,15 @@ impl MenuType for PaletteEditor {
         );
 
         if !self.mapping_type.open {
-            self.length_slider.percentage = palette.get_palette_length()/100.;
+            self.length_slider.percentage = palette.get_palette_length();
             self.length_slider.update();
-            if palette.set_palette_length(self.length_slider.percentage * self.length_slider.conversion) {
+            if palette.set_palette_length(self.length_slider.percentage) {
                 changed_this_frame = true;
             }
 
-            self.offset_slider.percentage = palette.get_offset()/100.;
+            self.offset_slider.percentage = palette.get_offset();
             self.offset_slider.update();
-            if palette.set_offset(self.offset_slider.percentage * self.length_slider.conversion) {
+            if palette.set_offset(self.offset_slider.percentage) {
                 changed_this_frame = true;
             }
         } else {

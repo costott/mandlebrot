@@ -37,18 +37,18 @@ async fn main() {
         (screen_width() as usize, screen_height() as usize),
         ScreenDimensions::tuple_4k(),
         Layers::new(vec![
-            Layer::new(LayerType::Colour, LayerRange::OutSet, 1.0, Palette::new_even(MIDNIGHT.to_vec(), MappingType::Repeated, 15.3173, 0.0)),
+            Layer::new(LayerType::Colour, LayerRange::OutSet, 1.0, Palette::new_even(MIDNIGHT.to_vec(), MappingType::Repeated, 0.153173, 0.0)),
             Layer::new(LayerType::ColourOrbitTrap(OrbitTrapType::Point(OrbitTrapPoint::new((0.0, 0.0), OrbitTrapAnalysis::Angle))),
                        LayerRange::InSet, 1.0, 
                        Palette::new_even(vec![Color::from_rgba(135, 5, 88, 255), PINK, WHITE, PINK, Color::from_rgba(135, 5, 88, 255)], 
-                       MappingType::Constant, 50., 0.0)
+                       MappingType::Constant, 0.5, 0.0)
                       ),
-            Layer::new(LayerType::Shading3D, LayerRange::OutSet, 1.0, Palette::new_even(vec![BLACK, WHITE], MappingType::Repeated, 100., 0.0)),
+            Layer::new(LayerType::Shading3D, LayerRange::OutSet, 1.0, Palette::new_even(vec![BLACK, WHITE], MappingType::Repeated, 1., 0.0)),
             Layer::new(LayerType::Shading, LayerRange::OutSet, 1.0,
-                       Palette::new_even(vec![WHITE, WHITE, WHITE, BLACK], MappingType::Repeated, 1.80, 0.0)),
+                       Palette::new_even(vec![WHITE, WHITE, WHITE, BLACK], MappingType::Repeated, 0.018, 0.0)),
             Layer::new(LayerType::ShadingOrbitTrap(OrbitTrapType::Circle(OrbitTrapCircle::new((0.0, 0.0), 10.0, OrbitTrapAnalysis::Distance))), 
                        LayerRange::OutSet, 1.0, 
-                       Palette::new_even(vec![WHITE, WHITE, BLACK], MappingType::Constant, 100., 0.0))
+                       Palette::new_even(vec![WHITE, WHITE, BLACK], MappingType::Constant, 1., 0.0))
         ])
     );
 
