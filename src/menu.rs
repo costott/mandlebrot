@@ -7,15 +7,17 @@
 use macroquad::prelude::*;
 
 use super::{
-    ScreenDimensions, Visualiser, escape_time, interpolate_colour, 
+    ScreenDimensions, Visualiser, interpolate_colour, 
     layers::*,
-    orbit_trap::*
+    orbit_trap::*,
+    palettes::*
 };
 
 /// the proportion of the screen width taken over by the menu
 const MENU_SCREEN_PROPORTION: f32 = 0.25;
 
 const HOVER_WHITE_OVERLAY: Color =  Color { r: 1., g: 1., b: 1., a: 0.3};
+const HOVER_BLACK_OVERLAY: Color = Color { r: 0., g: 0., b: 0., a: 0.3};
 const HOVER_RED_OVERLAY: Color =  Color { r: 1., g: 0., b: 0., a: 0.3};
 
 /// the proportion of the screen height taken over by the navbar
@@ -54,8 +56,8 @@ const LAYERMANAGER_RIGHT_PADDING: f32 = 1./75.;
 /// proportion of the screen height for the height of layer managers
 const LAYERMANAGER_HEIGHT: f32 = 1./7.;
 // const LAYEMANAGER_HEIGHT: f32 = 1./8.;
-/// proportion of the screen height for the height of the layer manager's pallete
-const LAYERMANAGER_PALLETE_HEIGHT_PROPORTION: f32 = LAYERMANAGER_HEIGHT*0.6;
+/// proportion of the screen height for the height of the layer manager's palette
+const LAYERMANAGER_PALETTE_HEIGHT_PROPORTION: f32 = LAYERMANAGER_HEIGHT*0.6;
 /// propotion of the screen height for the bottom padding at the bottom layer manager
 const LAYERMANAGER_BOTTOM_PADDING: f32 = 1./200.;
 /// proportion of the screen height for the padding between layer managers
@@ -68,8 +70,8 @@ const LAYERMANAGER_INNER_TOP_PADDING: f32 = 1./200.;
 const LAYERMANAGER_BORDER_PROPORTION: f32 = LAYERMANAGER_HEIGHT/30.;
 /// proportion of the **width of the LayerManager inside** where the first half ends
 const LAYERMANAGER_HALF_END_PROPORION: f32 = 0.6;
-/// proprtion of the screen width for the padding on the right of the layer manager's pallete
-const LAYERMANAGER_PALLETE_RIGHT_PADDING: f32 = 1./300.;
+/// proprtion of the screen width for the padding on the right of the layer manager's palette
+const LAYERMANAGER_PALETTE_RIGHT_PADDING: f32 = 1./300.;
 /// proportion of the screen height for the height of the name textbox
 const LAYERMANAGER_NAME_TEXTBOX_HEIGHT: f32 = 1./25.;
 /// proportion of the screen width for the size of the name text 
@@ -77,12 +79,12 @@ const LAYERMANAGER_NAME_TEXT_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/30.;
 /// proportion of the screen width for the size of the layer type text 
 const LAYERMANAGER_LAYER_TYPE_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/30.;
 const LAYERMANAGER_LAYER_TYPE_COLOUR: Color = Color { r: 0.55, g: 0.55, b: 0.55, a: 1.};
-/// proportion of the screen width for the height of the strength slider
+/// proportion of the screen height for the height of the strength slider
 const LAYERMANAGER_STRENGTH_SLIDER_HEIGHT: f32 = LAYERMANAGER_HEIGHT/20.;
 /// proportion of the screen width for the size of the strength text 
 const LAYERMANAGER_STRENGTH_TEXT_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/25.;
 /// proportion of the screen height for the border size of the edit button
-const LAYERMANAGER_EDIT_BUTTON_BORDER_HEIGHT: f32 = LAYERMANAGER_PALLETE_HEIGHT_PROPORTION/30.;
+const LAYERMANAGER_EDIT_BUTTON_BORDER_HEIGHT: f32 = LAYERMANAGER_PALETTE_HEIGHT_PROPORTION/30.;
 /// propotion of the screen width for the size of the layer range font
 const LAYERMANAGER_LAYER_RANGE_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/30.;
 /// proportion of the screen height for the size of the exit button
@@ -103,43 +105,64 @@ const LAYEREDTIOR_SPECIFIC_MENU_BAR_HEIGHT: f32 = NAVBAR_BORDER_WIDTH_PROPORTION
 /// proportion of the screen width for the size of the title of the specific menu
 const LAYEREDITOR_SPECIFIC_MENU_TITLE_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/12.;
 
+/// proportion of the screen width for the horizontal padding between the edges of the menu
+const PALETTEEDITOR_HOR_PADDING: f32 = MENU_SCREEN_PROPORTION/20.;
+/// proportion of the screen height for the vertical padding between sections of the menu
+const PALETTEEDITOR_VERT_PADDING: f32 = 1./50.;
+/// proportion of the screen height for the height of the palette display
+const PALETTEEDITOR_PALETTE_HEIGHT: f32 = 1./10.;
+/// proportion of the screen width for the width of the colour points
+const PALETTEEDITOR_COLOUR_POINT_WIDTH: f32 = MENU_SCREEN_PROPORTION/20.;
+/// proportion of the screen width for the width of the select box on the palette editor
+const PALETTEEDITOR_COLOUR_POINT_SELECT_WIDTH: f32 = MENU_SCREEN_PROPORTION/40.;
+/// proportion of the screen width for the width of the select box border on the palette editor
+const PALETTEEDITOR_COLOUR_POINT_SELECT_BORDER_WIDTH: f32 = PALETTEEDITOR_COLOUR_POINT_SELECT_WIDTH/3.;
+/// proportion of the screen width for the width of the buttons on the palette editor
+const PALETTEEDITOR_BUTTON_WIDTH: f32 = MENU_SCREEN_PROPORTION/7.;
+/// proportion of the screen width for the border width of the palette editor buttons
+const PALETTEEDIOR_BUTTON_BORDER_WIDTH: f32 = PALETTEEDITOR_BUTTON_WIDTH/10.;
+/// proportion of the screen width for the size of the palette editor text
+const PALETTEEDTIOR_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/20.;
+/// proportion of the screen width for the width of the text boxes on the palette editor
+const PALETTEEDITOR_TEXTBOX_WIDTH: f32 = MENU_SCREEN_PROPORTION/6.;
+/// proportion of the screen height for the height of the text boxes on the palette editor
+const PALETTEEDITOR_TEXTBOX_HEIGHT: f32 = 1./23.;
+/// proportion of the screen height for the padding between text boxes on the palette editor
+const PALETTEEDITOR_TEXTBOX_VERT_PADDING: f32 = PALETTEEDITOR_TEXTBOX_HEIGHT/4.;
+/// proportion of the screen width for the start x of the colour sliders
+const PALETTEEDITOR_COLOUR_SLIDER_START_X: f32 = MENU_SCREEN_PROPORTION/4.;
+/// proportion of the screen height for the height of the colour slider
+const PALETTEEDITOR_COLOUR_SLIDER_HEIGHT: f32 = 1./50.;
+/// proportion of the scree nheight for the bar in the palette editor
+const PALETTEEDITOR_BAR_HEIGHT: f32 = NAVBAR_BORDER_WIDTH_PROPORTION;
+/// proportion of the screen width for the width of the mapping type dropdown
+const PALETTEEDITOR_MAPPING_DROPDOWN_WIDTH: f32 = PALETTEEDITOR_TEXTBOX_WIDTH*2.2;
+
 /// gives a texture which is a snippet of the gradient for the menu at the given place
 fn get_back_gradient(visualiser: &Visualiser, start_x: u16, width: u16, height: u16) -> Texture2D {
     let mut image = Image::gen_image_color(width, height, BLACK);
-    
-    let pallete_width = visualiser.layers.layers[0].pallete.len();
 
     for i in 0..width {
-        let screen_x = start_x + i;
-        let menu_fraction = screen_x as f32 / (MENU_SCREEN_PROPORTION*screen_width());
-        let mut colour = Color::new(0., 0., 0., 1.);
+        let percent = ((start_x + i) as f32) / (screen_width()*MENU_SCREEN_PROPORTION);
+        let mut colour = None;
         for layer in visualiser.layers.layers.iter() {
-            if layer.layer_type.shading_layer() { continue }
-            if !layer.layer_range.layer_applies(false) { continue } // has to be out the set
-            let pallete_fraction = ((menu_fraction * layer.get_pallete_length()) / 1000.)*pallete_width as f32;
-            let layer_colour = escape_time(pallete_fraction as f64, &layer.pallete);
-            colour = interpolate_colour(colour, layer_colour, 0.9 * layer.strength);
+            // has to be a colour layer out of the set
+            if layer.layer_type.shading_layer() || !layer.layer_range.layer_applies(false) {
+                continue
+            }
+            let layer_colour = layer.palette.get_colour_at_percentage(percent, false);
+            colour = match colour {
+                None => Some(layer_colour),
+                Some(c) => Some(interpolate_colour(c, layer_colour, 0.9 * layer.strength))
+            };
         }
         for j in 0..height {
-            image.set_pixel(i as u32, j as u32, colour);
-        }
-    }
-
-    Texture2D::from_image(&image)
-}
-
-/// gives a texture which is the whole gradient (vertically)
-fn get_full_gradient(visualiser: &Visualiser, layer_i: usize, width: u16, height: u16) -> Texture2D {
-    let mut image = Image::gen_image_color(width, height, BLACK);
-
-    let pallete_width = visualiser.layers.layers[0].pallete.len();
-    let layer = &visualiser.layers.layers[layer_i];
-
-    for i in 0..width {
-        let pallete_fraction = (((i as f32 / width as f32) * layer.get_pallete_length()) / 1000.)*pallete_width as f32;
-        let colour = escape_time(pallete_fraction as f64, &layer.pallete);
-        for j in 0..height {
-            image.set_pixel(i as u32, j as u32, colour);
+            image.set_pixel(i as u32, j as u32, 
+                match colour {
+                    Some(c) => c,
+                    None => WHITE
+                }
+            );
         }
     }
 
@@ -152,14 +175,12 @@ fn get_full_gradient(visualiser: &Visualiser, layer_i: usize, width: u16, height
 /// # Params
 /// `gradient`: a texture where the colours are all in vertical bars
 fn get_brightest_colour(gradient: Texture2D) -> Color {
-    let mut colours = Vec::with_capacity(gradient.width() as usize);
-    for i in 0..gradient.width() as u32 {
-        colours.push(gradient.get_texture_data().get_pixel(i, 0));
-    }
+    let image = gradient.get_texture_data();
 
     let mut brightest_colour: Color = BLACK;
     let mut largest_luminance = 0.0;
-    for colour in colours {
+    for i in 0..gradient.width() as u32 {
+        let colour = image.get_pixel(i, 0);
         let luminance = 0.299*colour.r + 0.587*colour.g + 0.114*colour.r;
         if luminance < largest_luminance { continue }
         largest_luminance = luminance;
@@ -178,19 +199,34 @@ fn translate_rect(rect: &mut Rect, translate: (f32, f32)) {
     rect.y += translate.1;
 }
 
-enum MenuSignal {
-    None,
-    OpenEditor(usize)
+/// Returns a new `Rect` representing the given `Rect` after
+/// being stretched by a scale factor of scale at each border
+fn inflate_rect(rect: &Rect, scale: f32) -> Rect {
+    Rect::new(
+        rect.x - scale,
+        rect.y - scale,
+        rect.w + 2. * scale,
+        rect.h + 2. * scale
+    )
 }
 
-#[derive(Clone, Copy)]
+enum MenuSignal {
+    None,
+    OpenEditor(usize),
+    OpenPalette(usize),
+    RefreshGradients
+}
+
+#[derive(Clone, Copy, PartialEq)]
 enum MenuState {
     Closed,
     General,
     Layers,
     LayerEditor,
     Screenshot,
-    Video
+    Video,
+    PaletteEditor,
+    UpdateGradient
 }
 impl MenuState {
     fn map_button_states(button_i: isize) -> MenuState {
@@ -211,7 +247,9 @@ impl MenuState {
             MenuState::LayerEditor => 2,
             MenuState::Screenshot => 3,
             MenuState::Video => 4,
-            MenuState::Closed => 5
+            MenuState::PaletteEditor => 5,
+            MenuState::Closed => 5,
+            MenuState::UpdateGradient => 6
         }
     }
 
@@ -222,12 +260,15 @@ impl MenuState {
             MenuState::LayerEditor => "LAYER EDITOR",
             MenuState::Screenshot => "SCREENSHOT",
             MenuState::Video => "VIDEO",
+            MenuState::PaletteEditor => "PALETTE EDITOR",
             _ => ""
         })
     }
 
     /// draw the state to the screen 
     fn draw_state(&self, font: Font, colour: Color) {
+        if self == &MenuState::PaletteEditor { return}
+
         let text = &self.get_string();
         let font_size = (screen_width() * STATE_TEXT_FONT_PROPORTION) as u16;
         let dims = measure_text(text, Some(font), font_size, 1.0);
@@ -251,29 +292,51 @@ impl MenuState {
             0 => Some(Box::new(GeneralMenu::new(visualiser, font))),
             1 => Some(Box::new(LayersMenu::new(visualiser, font).await)),
             2 => Some(Box::new(LayerEditorMenu::new(visualiser).await)),
+            5 => Some(Box::new(PaletteEditor::new(&visualiser).await)),
             // placeholder
             _ => None
         }
     }
 
-    async fn process_signal(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 5], visualiser: &mut Visualiser, signal: MenuSignal, font: Font) {
+    async fn process_signal(
+        &mut self, 
+        menus: &mut [Option<Box<dyn MenuType>>; 6], 
+        visualiser: &mut Visualiser, 
+        signal: MenuSignal, 
+        font: Font
+    ) {
         match signal {
             MenuSignal::None => {},
             MenuSignal::OpenEditor(index) => {
-                match &mut menus[2] {
-                    None => {menus[2] = self.create_menu(visualiser, 2, font).await},
-                    Some(_) => {}
-                };
+                if menus[2].is_none() {
+                    menus[2] = self.create_menu(visualiser, 2, font).await
+                }
                 match &mut menus[2] {
                     None => panic!("layer editor menu failed to be created"),
-                    Some(m) => m.as_mut().open_menu_to_edit(index)
+                    Some(m) => m.as_mut().open_layer_to_edit(index, &visualiser)
                 }
                 *self = MenuState::LayerEditor;
+            },
+            MenuSignal::OpenPalette(index) => {
+                if menus[5].is_none() {
+                    menus[5] = self.create_menu(visualiser, 5, font).await
+                }
+                match &mut menus[5] {
+                    None => panic!("palette editor menu failed to be created"),
+                    Some(m) => m.as_mut().open_layer_to_edit(index, &visualiser)
+                }
+                *self = MenuState::PaletteEditor;
+            },
+            MenuSignal::RefreshGradients => {
+                for menu in menus {
+                    *menu = None;
+                }
+                *self = MenuState::UpdateGradient;
             }
         }
     }
 
-    async fn update_state_menu(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 5], visualiser: &mut Visualiser, index: usize, font: Font) {
+    async fn update_state_menu(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 6], visualiser: &mut Visualiser, index: usize, font: Font) {
         match &mut menus[index] {
             None => {
                 menus[index] = self.create_menu(visualiser, index, font).await;
@@ -286,18 +349,18 @@ impl MenuState {
     }
 
     /// updates the menu for the current state
-    async fn update_state(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 5], visualiser: &mut Visualiser, font: Font) {
+    async fn update_state(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 6], visualiser: &mut Visualiser, font: Font) {
         self.update_state_menu(menus, visualiser, self.map_state_indexes(), font).await;
     }
 
-    fn get_editing_menu(&self, menus: &mut [Option<Box<dyn MenuType>>; 5], index: usize) -> bool {
+    fn get_editing_menu(&self, menus: &mut [Option<Box<dyn MenuType>>; 6], index: usize) -> bool {
         match &mut menus[index] {
             None => {false},
             Some(m) => m.as_mut().get_editing()
         }
     }
 
-    fn get_editing(&self, menus: &mut [Option<Box<dyn MenuType>>; 5]) -> bool {
+    fn get_editing(&self, menus: &mut [Option<Box<dyn MenuType>>; 6]) -> bool {
         match self {
             MenuState::Closed => {false},
             _ => self.get_editing_menu(menus, self.map_state_indexes())
@@ -317,7 +380,8 @@ pub struct Menu {
     open_button: Button,
     close_button: Button,
     navbar: Navbar,
-    menus: [Option<Box<dyn MenuType>>; 5]
+    menus: [Option<Box<dyn MenuType>>; 6],
+    updated_gradient: bool
 }
 impl Menu {
     pub async fn new() -> Menu {
@@ -362,7 +426,8 @@ impl Menu {
                 vec![Box::new(ButtonColourElement::new(BLACK, (20., 20.), (0., 0.), 2))]
             ),
             navbar: Navbar::new().await,
-            menus: [None, None, None, None, None]
+            menus: [None, None, None, None, None, None],
+            updated_gradient: false
         }
     }
 
@@ -375,32 +440,40 @@ impl Menu {
         }
     }
 
+    fn update_gradient(&mut self, visualiser: &Visualiser) {
+        self.gradient = get_back_gradient(
+            &visualiser, 
+            0, 
+            (MENU_SCREEN_PROPORTION*screen_width()) as u16, 
+            (screen_height()*(NAVBAR_HEIGHT_PROPORTION+2.*STATE_TEXT_PADDING_PROPORTION) +
+                    screen_width()*STATE_TEXT_FONT_PROPORTION) as u16
+        );
+        self.navbar.back = self.gradient;
+        self.text_colour = get_brightest_colour(self.gradient);
+        self.updated_gradient = true;
+    }
+
     /// updates the menu every frame
     pub async fn update(&mut self, visualiser: &mut Visualiser) {
-        match self.state {
-            MenuState::Closed => {
-                self.menu_state_closed(visualiser);
-                return;
-            },
-            _ => {}
+        if self.state == MenuState::Closed {
+            self.menu_state_closed(visualiser);
+            return;
         }
-
-        if self.gradient.width() == 0. { 
-            // this will eventually change so the gradient changes when a layer is changed
-            self.gradient = get_back_gradient(
-                &visualiser, 
-                0, 
-                (MENU_SCREEN_PROPORTION*screen_width()) as u16, 
-                (screen_height()*(NAVBAR_HEIGHT_PROPORTION+2.*STATE_TEXT_PADDING_PROPORTION) +
-                        screen_width()*STATE_TEXT_FONT_PROPORTION) as u16
-            );
-            self.navbar.back = self.gradient;
-            self.text_colour = get_brightest_colour(self.gradient);
+        
+        if !self.updated_gradient {
+            self.update_gradient(visualiser);
         }
 
         self.state.update_state(&mut self.menus, visualiser, self.text_font).await;
+        if self.state == MenuState::UpdateGradient {
+            self.update_gradient(visualiser);
+            self.state = MenuState::General;
+            return;
+        }
 
         self.state = self.navbar.update(self.state, self.state_font, self.text_colour);
+
+        if self.state == MenuState::PaletteEditor { return }
 
         self.close_button.update();
         if self.close_button.clicked {
@@ -577,6 +650,7 @@ impl Button {
         }
 
         self.hovering = true; 
+        self.clicked = false;
         if is_mouse_button_pressed(MouseButton::Left) {
             self.holding = true;
         } 
@@ -622,6 +696,10 @@ impl Navbar {
     /// 
     /// returns the menu state the menu should be in
     fn update(&mut self, menu_state: MenuState, state_font: Font, text_colour: Color) -> MenuState {
+        if menu_state == MenuState::PaletteEditor {
+            return menu_state;
+        }
+        
         draw_texture(self.back, 0., 0., WHITE);
         for button in self.buttons.iter_mut() {
             button.update()
@@ -753,6 +831,23 @@ struct InputLabel {
     label_dims: TextDimensions,
     label_params: TextParams
 }
+impl InputLabel {
+    fn new(text: &str, font: Font, font_size: f32, color: Color) -> InputLabel {
+        let params = TextParams { font, font_size: font_size as u16,  color, ..Default::default()};
+        let measure = measure_text(
+            text, 
+            Some(font),
+            params.font_size,
+            params.font_scale
+        );
+
+        InputLabel { 
+            text: String::from(text), 
+            label_dims: measure,
+            label_params: params 
+        }
+    }
+}
 
 #[derive(Clone)]
 struct TextBox {
@@ -788,8 +883,7 @@ impl TextBox {
             data_info: DataInfo::new(&default_data, content_params),
             border_back: gradient,
             outer_rect,
-            inner_rect: Rect::new(outer_rect.x + border_width, outer_rect.y + border_width, 
-                                   outer_rect.w-2.*border_width, outer_rect.h-2.*border_width),
+            inner_rect: inflate_rect(&outer_rect, -border_width),
             content_params,
             selected: false,
             selected_shade: Color::new(1., 1., 1., 0.5),
@@ -817,7 +911,7 @@ impl TextBox {
         output
     }
 
-    fn draw(&mut self) {
+    fn draw(&self) {
         if let Some(label) = self.label.clone() {
             draw_text_ex(
                 &label.text, 
@@ -975,17 +1069,96 @@ impl TextBox {
     }
 }
 
+trait SliderBar: SliderBarClone {
+    fn draw(&self, rect: Rect);
+    fn make_gradient(&mut self, _rect: Rect, _left_colour: Color, _right_colour: Color) {}
+}
+
+trait SliderBarClone {
+    fn clone_box(&self) -> Box<dyn SliderBar>;
+}
+impl<T> SliderBarClone for T
+where
+    T: 'static + SliderBar + Clone,
+{
+    fn clone_box(&self) -> Box<dyn SliderBar> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn SliderBar> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
+#[derive(Clone)]
+struct SolidSliderBar {
+    colour: Color
+}
+impl SolidSliderBar {
+    fn new(colour: Color) -> SolidSliderBar {
+        SolidSliderBar { colour }
+    }
+}
+impl SliderBar for SolidSliderBar {
+    fn draw(&self, rect: Rect) {
+        draw_rectangle(rect.x, rect.y, rect.w, rect.h, self.colour);
+        draw_circle(rect.x, rect.center().y, rect.h/2., self.colour);
+        draw_circle(rect.right(), rect.center().y, rect.h/2., self.colour);
+    }
+}
+
+#[derive(Clone)]
+struct GradientSliderBar {
+    left_colour: Color,
+    right_colour: Color,
+    gradient_texture: Texture2D
+}
+impl GradientSliderBar {
+    fn empty() -> GradientSliderBar {
+        GradientSliderBar { left_colour: BLACK, right_colour: BLACK, gradient_texture: Texture2D::empty() }
+    }
+}
+impl SliderBar for GradientSliderBar {
+    fn draw(&self, rect: Rect) {
+        draw_circle(rect.x, rect.center().y, rect.h/2., self.left_colour);
+        draw_circle(rect.right(), rect.center().y, rect.h/2., self.right_colour);
+        // turn the circles into semicircles
+        draw_rectangle(rect.x, rect.y, rect.w.round(), rect.h, BLACK);
+
+        draw_texture(self.gradient_texture, rect.x, rect.y, WHITE);
+    }
+
+    fn make_gradient(&mut self, rect: Rect, left_colour: Color, right_colour: Color) {
+        let mut image = Image::gen_image_color(rect.w as u16, rect.h as u16, BLACK);
+        for i in 0..rect.w as u32 {
+            let fraction = i as f32 / rect.w;
+            for j in 0..rect.h as u32 {
+                image.set_pixel(i, j, interpolate_colour(left_colour, right_colour, fraction));
+            }
+        }
+
+        self.left_colour = left_colour;
+        self.right_colour = right_colour;
+        self.gradient_texture = Texture2D::from_image(&image);
+    }
+}
+
 #[derive(Clone)]
 struct Slider {
     label: Option<InputLabel>,
     /// percentage is between 0 and 1
     percentage: f32,
+    conversion: f32,
     percentage_label_params: Option<TextParams>,
+    percentage_text_box: Option<TextBox>,
     rect: Rect,
     inflated_rect: Rect,
+    slider_bar: Box<dyn SliderBar>,
     head_radius: f32,
     active: bool,
-    bar_colour: Color,
+    inactive_head_colour: Color,
     active_head_colour: Color
 }
 impl Slider {
@@ -996,25 +1169,27 @@ impl Slider {
     fn new(
         label: Option<InputLabel>, 
         start_percentage: f32, 
+        percentage_conversion: f32,
         percentage_label_params: Option<TextParams>,
+        percentage_text_box: Option<TextBox>,
         x: f32, y: f32, width: f32, height: f32, 
-        head_radius: f32, 
-        bar_colour: Color, active_head_colour: Color
+        slider_bar: Box<dyn SliderBar>,
+        head_radius: f32,
+        inactive_head_colour: Color,
+        active_head_colour: Color
     ) -> Slider {
         let rect = Rect::new(x, y, width, height);
-        let mut inflated_rect = rect.clone();
-        let extra = (head_radius - rect.h * 0.5)*1.5;
-        inflated_rect.h += 2.0*extra;
-        inflated_rect.y -= extra;
-        inflated_rect.w += 2.0*extra;
-        inflated_rect.x -= extra;
+        let inflated_rect = inflate_rect(&rect, head_radius);
 
         Slider {
             label,
             percentage: start_percentage,
+            conversion: percentage_conversion,
             percentage_label_params,
+            percentage_text_box,
             rect, inflated_rect,
-            head_radius, bar_colour, active_head_colour,
+            slider_bar,
+            head_radius, inactive_head_colour, active_head_colour,
             active: false
         }
     }
@@ -1025,6 +1200,14 @@ impl Slider {
         self.user_slide();
 
         self.draw();
+
+        // update text box
+        if let Some(Ok(new)) = self.percentage_text_box.as_mut()
+                                    .and_then(|tb| tb.update((self.percentage * self.conversion).to_string()))
+                                    .and_then(|new_percent| Some(new_percent.parse::<f32>())) {
+            if new < 0. || new > self.conversion { return }
+            self.percentage = new / self.conversion;
+        }
     }
 
     fn check_user_select(&mut self) {
@@ -1059,16 +1242,14 @@ impl Slider {
         if let Some(label) = self.label.clone() {
             draw_text_ex(
                 &label.text, 
-                self.rect.x - label.label_dims.width * 1.1 - self.rect.h/2., 
-                self.rect.bottom() + label.label_dims.height/4.,
+                self.inflated_rect.x - label.label_dims.width * 1.1 - self.rect.h/2., 
+                self.rect.center().y + label.label_dims.height/2.,
                 label.label_params,
             );
         }
 
         // draw bar
-        draw_rectangle(self.rect.x, self.rect.y, self.rect.w, self.rect.h, self.bar_colour);
-        draw_circle(self.rect.x, self.rect.center().y, self.rect.h/2., self.bar_colour);
-        draw_circle(self.rect.right(), self.rect.center().y, self.rect.h/2., self.bar_colour);
+        self.slider_bar.draw(self.rect);
 
         // draw head
         if self.active {
@@ -1076,7 +1257,7 @@ impl Slider {
                         self.rect.center().y, self.head_radius, self.active_head_colour);
         } else{
             draw_circle(self.rect.x + self.percentage * self.rect.w, 
-                self.rect.center().y, self.head_radius, self.bar_colour);
+                self.rect.center().y, self.head_radius, self.inactive_head_colour);
             if !self.inflated_rect.contains(Vec2::from(mouse_position())) {
                 draw_circle(self.rect.x + self.percentage * self.rect.w, 
                     self.rect.center().y, self.head_radius*0.5, BLACK);
@@ -1085,7 +1266,7 @@ impl Slider {
 
         // draw percentage label
         if let Some(percentage_params) = self.percentage_label_params.clone() {
-            let percentage_string = (self.percentage * 100.).round().to_string();
+            let percentage_string = (self.percentage * self.conversion).round().to_string();
             let percentage_string = format!("{}%", &percentage_string);
             let measure = measure_text(
                 &percentage_string, 
@@ -1098,6 +1279,10 @@ impl Slider {
                 self.rect.bottom() + measure.height/4.,
                 percentage_params
             );
+        }
+        // draw text box
+        if let Some(textbox) = self.percentage_text_box.clone() {
+            textbox.draw();
         }
     }
 
@@ -1268,7 +1453,7 @@ impl<T: DropDownType<T> + std::cmp::PartialEq + Clone> DropDown<T> {
         if let Some(label) = self.label.clone() {
             draw_text_ex(
                 &label.text, 
-                screen_width()*TEXTBOX_LABEL_WIDTH_PADDING_PROPORTION, 
+                self.closed_rect.x - label.label_dims.width - screen_width()*TEXTBOX_LABEL_WIDTH_PADDING_PROPORTION, 
                 self.closed_rect.y + self.closed_rect.h/2. + label.label_dims.height/2., 
                 label.label_params,
             );
@@ -1365,12 +1550,7 @@ impl Carousel {
         border_size: f32
     ) -> Carousel {
         let outer_rect = Rect::new(topleft.0, topleft.1, size.0, size.1);
-        let inner_rect = Rect::new(
-            outer_rect.x + border_size,
-            outer_rect.y + border_size,
-            outer_rect.w - 2.*border_size,
-            outer_rect.h - 2.*border_size
-        );
+        let inner_rect = inflate_rect(&outer_rect, -border_size);
 
         let variant_font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
         let variant_text_params = TextParams { font: variant_font, 
@@ -1473,7 +1653,7 @@ impl Carousel {
 trait MenuType {
     fn update(&mut self, visualiser: &mut Visualiser) -> MenuSignal;
     fn get_editing(&mut self) -> bool;
-    fn open_menu_to_edit(&mut self, _index: usize) {}
+    fn open_layer_to_edit(&mut self, _index: usize, _visualiser: &Visualiser) {}
 }
 
 /// generates the text boxes for the general menu
@@ -1626,12 +1806,12 @@ fn generate_strength_slider(strength_slider_text_params: TextParams, inner_rect:
         strength_slider_text_params.font_scale
     );
     // the top of the 'box' the slider is in
-    let strength_boxtop = inner_rect.y + screen_height()*(LAYERMANAGER_INNER_TOP_PADDING+LAYERMANAGER_PALLETE_HEIGHT_PROPORTION);
+    let strength_boxtop = inner_rect.y + screen_height()*(LAYERMANAGER_INNER_TOP_PADDING+LAYERMANAGER_PALETTE_HEIGHT_PROPORTION);
     let strength_mid = strength_boxtop + (inner_rect.bottom() - strength_boxtop)*0.5;
     let strength_height = screen_height() * LAYERMANAGER_STRENGTH_SLIDER_HEIGHT;
     let strength_x = inner_rect.x + 
-        screen_width()*(LAYERMANAGER_INNER_LEFT_PADDING+LAYERMANAGER_PALLETE_RIGHT_PADDING) + 
-        screen_height()*LAYERMANAGER_PALLETE_HEIGHT_PROPORTION;
+        screen_width()*(LAYERMANAGER_INNER_LEFT_PADDING+LAYERMANAGER_PALETTE_RIGHT_PADDING) + 
+        screen_height()*LAYERMANAGER_PALETTE_HEIGHT_PROPORTION;
     let measure = measure_text(
         &"100%", 
         Some(strength_slider_text_params.font), 
@@ -1647,15 +1827,19 @@ fn generate_strength_slider(strength_slider_text_params: TextParams, inner_rect:
         Some(InputLabel { 
             text: String::from("strength"),
             label_dims: TextDimensions { 
-            width: strength_measure.width, 
-            height: strength_measure.height, offset_y: 0.0 },
+                width: strength_measure.width, 
+                height: strength_measure.height, offset_y: 0.0 },
             label_params: strength_label_params 
         }),
         layer_strength,
+        100.,
         Some(strength_slider_text_params),
+        None,
         strength_x,
         strength_mid - strength_height*0.5,
-        strength_width, strength_height, strength_height*1.5, 
+        strength_width, strength_height, 
+        Box::new(SolidSliderBar::new(LAYERMANAGER_LAYER_TYPE_COLOUR)),
+        strength_height * 1.5,
         LAYERMANAGER_LAYER_TYPE_COLOUR, WHITE
     )
 }
@@ -1665,7 +1849,7 @@ struct LayerManager {
     border_back: Texture2D,
     outer_rect: Rect,
     inner_rect: Rect,
-    pallete_button: Button,
+    palette_button: Button,
     name: TextBox,
     layer_type_text_params: TextParams,
     edit_button: Button,
@@ -1704,21 +1888,21 @@ impl LayerManager {
         );
 
         let name_textbox_width = inner_rect.w * LAYERMANAGER_HALF_END_PROPORION - 
-            screen_width()*(LAYERMANAGER_INNER_LEFT_PADDING+LAYERMANAGER_PALLETE_RIGHT_PADDING) - 
-            screen_height()*LAYERMANAGER_PALLETE_HEIGHT_PROPORTION;
-        let name_textbox_start_x = screen_width()*(LAYERMANAGER_INNER_LEFT_PADDING+LAYERMANAGER_PALLETE_RIGHT_PADDING) +
-            screen_height()*LAYERMANAGER_PALLETE_HEIGHT_PROPORTION;
+            screen_width()*(LAYERMANAGER_INNER_LEFT_PADDING+LAYERMANAGER_PALETTE_RIGHT_PADDING) - 
+            screen_height()*LAYERMANAGER_PALETTE_HEIGHT_PROPORTION;
+        let name_textbox_start_x = screen_width()*(LAYERMANAGER_INNER_LEFT_PADDING+LAYERMANAGER_PALETTE_RIGHT_PADDING) +
+            screen_height()*LAYERMANAGER_PALETTE_HEIGHT_PROPORTION;
         let name_textbox_height = screen_height()*LAYERMANAGER_NAME_TEXTBOX_HEIGHT;
 
-        let pallete_size = screen_height()*LAYERMANAGER_PALLETE_HEIGHT_PROPORTION;
+        let palette_size = screen_height()*LAYERMANAGER_PALETTE_HEIGHT_PROPORTION;
         let edit_button_x = inner_rect.w*LAYERMANAGER_HALF_END_PROPORION + 
             screen_width()*LAYERMANAGER_INNER_LEFT_PADDING;
         let edit_button_border = screen_height()*LAYERMANAGER_EDIT_BUTTON_BORDER_HEIGHT;
 
-        let layer_range_dropdown_y = pallete_size + 2.*screen_height()*LAYERMANAGER_INNER_TOP_PADDING;
+        let layer_range_dropdown_y = palette_size + 2.*screen_height()*LAYERMANAGER_INNER_TOP_PADDING;
         // let layer_range_dropdown_y = inner_rect.y + screen_height()*LAYERMANAGER_INNER_TOP_PADDING;
 
-        let drag_x = edit_button_x + pallete_size + screen_width()*LAYERMANAGER_LEFT_PADDING;
+        let drag_x = edit_button_x + palette_size + screen_width()*LAYERMANAGER_LEFT_PADDING;
 
         let delete_button_size = screen_height()*LAYERMANAGER_DELETE_BUTTON_SIZE;
         let delete_button_x_offset = inner_rect.w-delete_button_size-screen_height()*LAYERMANAGER_INNER_LEFT_PADDING;
@@ -1731,18 +1915,18 @@ impl LayerManager {
                 outer_rect.h as u16
             ), 
             outer_rect, inner_rect,
-            pallete_button: Button::new(
-                (pallete_size, pallete_size),
+            palette_button: Button::new(
+                (palette_size, palette_size),
                 (screen_width()*LAYERMANAGER_INNER_LEFT_PADDING, screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
                 vec![Box::new(ButtonImageElement::from_texture(
-                    get_full_gradient(visualiser, layer_num, pallete_size as u16, pallete_size as u16),
+                    visualiser.layers.layers[layer_num].palette.get_full_gradient(palette_size, palette_size),
                     1., (0., 0.), 0
                 ))],
                 vec![
-                    Box::new(ButtonColourElement::new(Color::new(0., 0., 0., 0.5), (pallete_size, pallete_size), (0., 0.), 1)),
+                    Box::new(ButtonColourElement::new(Color::new(0., 0., 0., 0.5), (palette_size, palette_size), (0., 0.), 1)),
                     Box::new(ButtonImageElement::from_image(
                         load_image("assets/wrench.png").await.unwrap(), 0.7, 
-                        DrawTextureParams { dest_size: Some(Vec2::new(pallete_size, pallete_size)), ..Default::default() },
+                        DrawTextureParams { dest_size: Some(Vec2::new(palette_size, palette_size)), ..Default::default() },
                         (0., 0.), 2
                     ))
                 ], 
@@ -1765,24 +1949,24 @@ impl LayerManager {
             ), 
             layer_type_text_params,
             edit_button: Button::new(
-                (pallete_size, pallete_size),
+                (palette_size, palette_size),
                 (edit_button_x, screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
                 vec![
                     Box::new(ButtonImageElement::from_texture(
-                        get_back_gradient(visualiser, edit_button_x as u16, pallete_size as u16, pallete_size as u16),
+                        get_back_gradient(visualiser, edit_button_x as u16, palette_size as u16, palette_size as u16),
                         1., (0., 0.), 0
                     )),
                     Box::new(ButtonColourElement::new(BLACK, 
-                        (pallete_size-2.*edit_button_border, pallete_size-2.*edit_button_border), (edit_button_border, edit_button_border),
+                        (palette_size-2.*edit_button_border, palette_size-2.*edit_button_border), (edit_button_border, edit_button_border),
                         1
                     )),
                     Box::new(ButtonImageElement::from_image(
                         load_image("assets/wrench.png").await.unwrap(), 0.7, 
-                        DrawTextureParams { dest_size: Some(Vec2::new(pallete_size, pallete_size)), ..Default::default() },
+                        DrawTextureParams { dest_size: Some(Vec2::new(palette_size, palette_size)), ..Default::default() },
                         (0., 0.), 2
                     ))
                 ],
-                vec![Box::new(ButtonColourElement::new( HOVER_WHITE_OVERLAY, (pallete_size, pallete_size), (0., 0.), 3 ))], 
+                vec![Box::new(ButtonColourElement::new( HOVER_WHITE_OVERLAY, (palette_size, palette_size), (0., 0.), 3 ))], 
                 vec![]
             ),
             strength_slider: generate_strength_slider(strength_slider_text_params, inner_rect, layer.strength),
@@ -1790,9 +1974,9 @@ impl LayerManager {
                 visualiser,
                 (screen_width()*LAYERMANAGER_LAYER_RANGE_FONT_PROPORTION) as u16,
                 (edit_button_x, layer_range_dropdown_y),
-                // (edit_button_x+pallete_size+screen_width()*LAYERMANAGER_INNER_LEFT_PADDING, layer_range_dropdown_y),
-                (pallete_size, inner_rect.bottom() - layer_range_dropdown_y - screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
-                // (pallete_size, pallete_size*0.4),
+                // (edit_button_x+palette_size+screen_width()*LAYERMANAGER_INNER_LEFT_PADDING, layer_range_dropdown_y),
+                (palette_size, inner_rect.bottom() - layer_range_dropdown_y - screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
+                // (palette_size, palette_size*0.4),
                 edit_button_border,
                 None
             ).await,
@@ -1840,10 +2024,10 @@ impl LayerManager {
         let mut copy = copy.clone();
         copy.undo_translation();
 
-        let mut pallete_button = copy.pallete_button.clone();
-        let pallete_size = screen_height()*LAYERMANAGER_PALLETE_HEIGHT_PROPORTION;
-        pallete_button.back_elements[0] = Box::new(ButtonImageElement::from_texture(
-            get_full_gradient(visualiser, visualiser.layers.layers.len()-1, pallete_size as u16, pallete_size as u16),
+        let mut palette_button = copy.palette_button.clone();
+        let palette_size = screen_height()*LAYERMANAGER_PALETTE_HEIGHT_PROPORTION;
+        palette_button.back_elements[0] = Box::new(ButtonImageElement::from_texture(
+            visualiser.layers.layers[visualiser.layers.layers.len()-1].palette.get_full_gradient(palette_size, palette_size),
             1., (0., 0.), 0
         ));
 
@@ -1862,7 +2046,7 @@ impl LayerManager {
             border_back: copy.border_back, 
             outer_rect,
             inner_rect: copy.inner_rect, 
-            pallete_button, 
+            palette_button, 
             name: copy.name.clone(), 
             layer_type_text_params: copy.layer_type_text_params, 
             edit_button: copy.edit_button.clone(), 
@@ -1893,7 +2077,7 @@ impl LayerManager {
     }
 
     fn translate_items(&mut self, translate: (f32, f32)) {
-        self.pallete_button.translate(translate);
+        self.palette_button.translate(translate);
         self.name.translate(translate);
         self.edit_button.translate(translate);
         self.strength_slider.translate(translate);
@@ -1928,7 +2112,7 @@ impl LayerManager {
 
         let mut changed: bool = false;
 
-        self.pallete_button.update();
+        self.palette_button.update();
         if update_edit_button {
             self.edit_button.update();
         } else {
@@ -1974,8 +2158,8 @@ impl LayerManager {
             Some(self.layer_type_text_params.font), self.layer_type_text_params.font_size, 1.0);
         draw_text_ex(
             &layer.layer_type.get_string(), 
-            self.inner_rect.x + screen_width()*(LAYERMANAGER_INNER_LEFT_PADDING+LAYERMANAGER_PALLETE_RIGHT_PADDING) + 
-                screen_height()*(LAYERMANAGER_PALLETE_HEIGHT_PROPORTION),
+            self.inner_rect.x + screen_width()*(LAYERMANAGER_INNER_LEFT_PADDING+LAYERMANAGER_PALETTE_RIGHT_PADDING) + 
+                screen_height()*(LAYERMANAGER_PALETTE_HEIGHT_PROPORTION),
             self.inner_rect.y + screen_height()*(2.0*LAYERMANAGER_INNER_TOP_PADDING+LAYERMANAGER_NAME_TEXTBOX_HEIGHT) + 
                 measure.height*0.7,
             self.layer_type_text_params
@@ -2128,8 +2312,8 @@ impl LayersMenu {
     }
     
     fn add_layer(&mut self, visualiser: &mut Visualiser) {
-        let mut new_layer =  Layer::new(LayerType::Colour, LayerRange::Both, 0., vec![WHITE, WHITE], 1000.);
-        new_layer.generate_pallete(visualiser.max_iterations);
+        let mut new_layer =  Layer::new(LayerType::Colour, LayerRange::Both, 0., Palette::default());
+        new_layer.palette.generate_palette(visualiser.max_iterations);
         visualiser.layers.add_layer(&new_layer);
 
         self.layer_managers.push(LayerManager::new_copy(&visualiser, &self.layer_managers[0], self.scroll));
@@ -2302,6 +2486,7 @@ impl LayersMenu {
 }
 impl MenuType for LayersMenu {
     fn update(&mut self, visualiser: &mut Visualiser) -> MenuSignal {
+        // first iteration just finds inactive dropdowns
         let mut inactive_dropdowns = Vec::with_capacity(self.layer_managers.len());
         for (i, manager) in self.layer_managers.iter().enumerate() {
             if !manager.layer_range_dropdown.open { continue }
@@ -2313,6 +2498,7 @@ impl MenuType for LayersMenu {
             }
         }
 
+        // iterate and updated the layer managers
         let mut changed = false;
         let mut drag_i: Option<usize> = None;
         let mut released_i: Option<usize> = None;
@@ -2334,6 +2520,14 @@ impl MenuType for LayersMenu {
 
             if manager.delete_button.clicked {
                 delete_i = Some(i);
+            }
+
+            if manager.edit_button.clicked {
+                return MenuSignal::OpenEditor(i);
+            }
+
+            if manager.palette_button.clicked {
+                return MenuSignal::OpenPalette(i);
             }
         }
 
@@ -2370,12 +2564,6 @@ impl MenuType for LayersMenu {
         if changed {
             Layers::place_constraints(&mut visualiser.layers.layers);
             visualiser.generate_image();
-        }
-
-        for (i, manager) in self.layer_managers.iter().enumerate() {
-            if manager.edit_button.clicked {
-                return MenuSignal::OpenEditor(i);
-            }
         }
 
         MenuSignal::None
@@ -2526,7 +2714,7 @@ impl OrbitTrapEditor {
                 ..Default::default()
             },
             trap_type: generator.make_dropdown(visualiser, 0, "type").await,
-            analysis: generator.make_dropdown(visualiser, 1, "analsis").await,
+            analysis: generator.make_dropdown(visualiser, 1, "analysis").await,
             center_re: generator.make_textbox(visualiser, 2, "center (re)"),
             center_im: generator.make_textbox(visualiser, 3, "center (im)"),
             radius: generator.make_textbox(visualiser, 4, "radius"),
@@ -2712,7 +2900,700 @@ impl MenuType for LayerEditorMenu {
         self.orbit_trap_editor.radius.selected || self.orbit_trap_editor.arm_length.selected
     }
 
-    fn open_menu_to_edit(&mut self, index: usize) {
+    fn open_layer_to_edit(&mut self, index: usize, _visualiser: &Visualiser) {
         self.set_layer_to_edit(index);
+    }
+}
+
+fn color_with_params(colour: &Color, r: Option<f32>, g: Option<f32>, b: Option<f32>, a: Option<f32>) -> Color {
+    Color {
+        r: r.unwrap_or(colour.r),
+        g: g.unwrap_or(colour.g),
+        b: b.unwrap_or(colour.b),
+        a: a.unwrap_or(colour.a)
+    }
+}
+
+struct ColourPointEditor {
+    map_rect: Rect,
+    rect: Rect,
+    colour: Color,
+    selected: bool,
+    deselect_y: f32,
+    selected_x_offset: f32,
+    outer_select_box: Rect,
+    inner_select_box: Rect
+}
+impl ColourPointEditor {
+    fn new(colour_point: &ColourPoint, map_rect: Rect) -> ColourPointEditor {
+        let width = screen_width()*PALETTEEDITOR_COLOUR_POINT_WIDTH;
+        let select_width = screen_width()*PALETTEEDITOR_COLOUR_POINT_SELECT_WIDTH;
+        let x = map_rect.x - width/2. + (colour_point.percent/100.)*map_rect.w;
+
+        let outer_select_box = Rect::new(
+            x + (width-select_width)/2.,
+            map_rect.top(),
+            select_width,
+            map_rect.h
+        );
+
+        ColourPointEditor { 
+            map_rect,
+            rect: Rect::new(
+                x,
+                map_rect.bottom(),
+                width,
+                2. * width
+            ),
+            colour: colour_point.colour,
+            selected: false,
+            deselect_y: map_rect.bottom() + 2.* width + screen_height()*PALETTEEDITOR_VERT_PADDING,
+            selected_x_offset: 0.0,
+            outer_select_box,
+            inner_select_box: inflate_rect(&outer_select_box, -screen_width()*PALETTEEDITOR_COLOUR_POINT_SELECT_BORDER_WIDTH)
+        }
+    }
+
+    fn translate_to(&mut self, new_x: f32) -> Option<f32> {
+        let old_x = self.rect.x;
+
+        self.rect.x = new_x;
+        self.rect.x = self.rect.x.clamp(self.map_rect.x - self.rect.w/2., self.map_rect.right() - self.rect.w/2.);
+
+        let delta = self.rect.x - old_x;
+        self.outer_select_box.x += delta;
+        self.inner_select_box.x += delta;
+
+        match delta == 0.0 {
+            true => None,
+            false => Some( ((self.rect.center().x - self.map_rect.x) / self.map_rect.w)*100. )
+        }
+    }
+
+    /// draw and update the `ColourPointEditor`
+    /// 
+    /// # Returns
+    /// None if the point was unchanged
+    /// Some(new percentage) if the point was changed 
+    fn update(&mut self, other_selected: bool) -> Option<f32> {
+        self.draw();
+        self.mouse_interact(other_selected)
+    }
+    
+    fn draw(&self) {
+        let color = match self.selected {
+            true => WHITE,
+            false => LAYERMANAGER_LAYER_TYPE_COLOUR
+        };
+
+        draw_triangle(
+            Vec2::new(self.rect.x + self.rect.w/2., self.rect.y),
+            Vec2::new(self.rect.x, self.rect.y + self.rect.h/2.),
+            Vec2::new(self.rect.x + self.rect.w, self.rect.y + self.rect.h/2.),
+            color
+        );
+        draw_rectangle(
+            self.rect.x,
+            self.rect.y + self.rect.h/2.,
+            self.rect.w,
+            self.rect.h/2.,
+            color
+        );
+        draw_circle(
+            self.rect.x + self.rect.w/2.,
+            self.rect.y + self.rect.h * 0.75,
+            self.rect.w * 0.4,
+            self.colour
+        );
+
+        if !self.selected { return }
+
+        draw_rectangle(
+            self.outer_select_box.x, 
+            self.outer_select_box.y, 
+            self.outer_select_box.w, 
+            self.outer_select_box.h, 
+            WHITE
+        );
+        draw_rectangle(
+            self.inner_select_box.x,
+            self.inner_select_box.y,
+            self.inner_select_box.w,
+            self.inner_select_box.h,
+            self.colour
+        );
+    }
+
+    fn mouse_interact(&mut self, other_selected: bool) -> Option<f32> {
+        if !self.rect.contains(mouse_position().into()) 
+                && is_mouse_button_pressed(MouseButton::Left) 
+                && (mouse_position().1 <= self.deselect_y || mouse_position().0 > screen_width()*MENU_SCREEN_PROPORTION) {
+            self.selected = false;
+        }
+
+        if other_selected { return None }
+
+        if self.rect.contains(mouse_position().into()) && is_mouse_button_pressed(MouseButton::Left) {
+            self.selected = true;
+            self.selected_x_offset = self.rect.x - mouse_position().0;
+        }
+
+        if self.selected && is_mouse_button_down(MouseButton::Left) && (mouse_position().1 <= self.deselect_y) {
+            self.translate_to(mouse_position().0 + self.selected_x_offset)
+        } else {
+            None
+        }
+    }
+}
+
+struct PaletteEditor {
+    old_palette: Palette,
+    layer_index: usize,
+    font: Font,
+    title_back: Texture2D,
+    inner_title_rect: Rect,
+    title_text_measure: TextDimensions,
+    title_text_colour: Color,
+    colour_map_rect: Rect,
+    colour_point_editors: Vec<ColourPointEditor>,
+    add_button: Button,
+    delete_button: Button,
+    red_slider: Slider,
+    green_slider: Slider,
+    blue_slider: Slider,
+    alpha_slider: Slider,
+    bar_rect: Rect,
+    bar_grad: Texture2D,
+    palette_rect: Rect,
+    mapping_type: DropDown<MappingType>,
+    length_slider: Slider,
+    offset_slider: Slider,
+    sumbit_button: Button,
+    cancel_button: Button
+}
+impl PaletteEditor {
+    async fn new(visualiser: &Visualiser) -> PaletteEditor {
+        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+
+        let title_rect = Rect::new(0., 0., 
+            screen_width()*MENU_SCREEN_PROPORTION, 
+            screen_height()*(2.*STATE_TEXT_PADDING_PROPORTION) + screen_width()*STATE_TEXT_FONT_PROPORTION);
+        let title_back = get_back_gradient(visualiser, 0, title_rect.w as u16, title_rect.h as u16);
+            
+        let start_x = screen_width()*PALETTEEDITOR_HOR_PADDING;
+        let vert_padding = screen_height()*PALETTEEDITOR_VERT_PADDING;
+
+        let button_size = screen_width()*PALETTEEDITOR_BUTTON_WIDTH;
+        let button_border = screen_width()*PALETTEEDIOR_BUTTON_BORDER_WIDTH;
+        let inner_button_size = button_size - 2.*button_border;
+        let delete_button_start_x = screen_width()*(MENU_SCREEN_PROPORTION-PALETTEEDITOR_HOR_PADDING)-button_size;
+
+        let font_size = screen_width()*PALETTEEDTIOR_FONT_PROPORTION;
+
+        let bar_bottom = title_rect.h + 
+            vert_padding*4. + 
+            screen_height()*(PALETTEEDITOR_PALETTE_HEIGHT+4.*PALETTEEDITOR_TEXTBOX_HEIGHT+3.*PALETTEEDITOR_TEXTBOX_VERT_PADDING+
+                PALETTEEDITOR_BAR_HEIGHT) +
+            screen_width()*(2.*PALETTEEDITOR_COLOUR_POINT_WIDTH+PALETTEEDITOR_BUTTON_WIDTH);
+        let bar_rect = Rect::new(
+            0., 
+            bar_bottom-screen_height()*PALETTEEDITOR_BAR_HEIGHT, 
+            screen_width()*MENU_SCREEN_PROPORTION,
+            screen_height()*PALETTEEDITOR_BAR_HEIGHT
+        );
+        let palette_rect = Rect::new(start_x, bar_bottom+vert_padding, 
+            screen_width()*(MENU_SCREEN_PROPORTION-2.*PALETTEEDITOR_HOR_PADDING),
+            screen_height()*PALETTEEDITOR_PALETTE_HEIGHT
+        );
+
+        let textbox_dims = PaletteEditor::get_textbox_dims(title_rect.h, vert_padding);
+
+        PaletteEditor { 
+            old_palette: Palette::default(),
+            layer_index: 0,
+            font,
+            title_back,
+            inner_title_rect: inflate_rect(&title_rect, -screen_width()*NAVBAR_BORDER_WIDTH_PROPORTION),
+            title_text_measure: measure_text(
+                "PALETTE EDITOR", 
+                Some(font), 
+                (screen_width()*STATE_TEXT_FONT_PROPORTION) as u16, 
+                1.0
+            ),
+            title_text_colour: get_brightest_colour(title_back),
+            colour_map_rect: Rect::new(
+                start_x, title_rect.h + vert_padding, 
+                screen_width()*(MENU_SCREEN_PROPORTION-2.*PALETTEEDITOR_HOR_PADDING),
+                screen_height()*PALETTEEDITOR_PALETTE_HEIGHT
+            ),
+            colour_point_editors: Vec::new(),
+            add_button: Button::new(
+                (button_size, button_size),
+                (start_x, title_rect.h + 2.*vert_padding + screen_height()*PALETTEEDITOR_PALETTE_HEIGHT
+                        +screen_width()*2.*PALETTEEDITOR_COLOUR_POINT_WIDTH),
+                vec![
+                    Box::new(ButtonImageElement::from_texture(
+                        get_back_gradient(visualiser, start_x as u16, button_size as u16, button_size as u16),
+                        1.0, (0., 0.), 0
+                    )),
+                    Box::new(ButtonColourElement::new(
+                        BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 1
+                    )),
+                    Box::new(ButtonImageElement::from_image(
+                        load_image("assets/plus.png").await.unwrap(),
+                        1.0,
+                        DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
+                        (button_border, button_border),
+                        2
+                    ))
+                ],
+                vec![Box::new(ButtonColourElement::new(
+                    HOVER_WHITE_OVERLAY, (button_size, button_size), (0., 0.), 3
+                ))],
+                vec![Box::new(ButtonColourElement::new(
+                    HOVER_BLACK_OVERLAY, (button_size, button_size), (0., 0.), 4
+                ))]
+            ),
+            delete_button: Button::new(
+                (button_size, button_size),
+                (delete_button_start_x, 
+                        title_rect.h + 2.*vert_padding + screen_height()*PALETTEEDITOR_PALETTE_HEIGHT
+                            +screen_width()*2.*PALETTEEDITOR_COLOUR_POINT_WIDTH),
+                vec![
+                    Box::new(ButtonImageElement::from_texture(
+                        get_back_gradient(visualiser, delete_button_start_x as u16, button_size as u16, button_size as u16),
+                        1.0, (0., 0.), 0
+                    )),
+                    Box::new(ButtonColourElement::new(
+                        BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 1
+                    )),
+                    Box::new(ButtonImageElement::from_image(
+                        load_image("assets/bin.png").await.unwrap(),
+                        1.0,
+                        DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
+                        (button_border, button_border),
+                        2
+                    ))
+                ],
+                vec![
+                    Box::new(ButtonColourElement::new(
+                        BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 3
+                    )),
+                    Box::new(ButtonImageElement::from_image(
+                        load_image("assets/binOpen.png").await.unwrap(),
+                        1.0,
+                        DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
+                        (button_border, button_border),
+                        4
+                    )),
+                    Box::new(ButtonColourElement::new(
+                        HOVER_WHITE_OVERLAY, (button_size, button_size), (0., 0.), 5
+                ))
+                ],
+                vec![Box::new(ButtonColourElement::new(
+                    HOVER_BLACK_OVERLAY, (button_size, button_size), (0., 0.), 6
+                ))]
+            ),
+            red_slider: PaletteEditor::get_slider(0, visualiser, font, title_rect.h, vert_padding),
+            green_slider: PaletteEditor::get_slider(1, visualiser, font, title_rect.h, vert_padding),
+            blue_slider: PaletteEditor::get_slider(2, visualiser, font, title_rect.h, vert_padding),
+            alpha_slider: PaletteEditor::get_slider(3, visualiser, font, title_rect.h, vert_padding),
+            bar_rect, 
+            bar_grad: get_back_gradient(visualiser, bar_rect.x as u16, bar_rect.w as u16, bar_rect.h as u16),
+            palette_rect,
+            mapping_type: DropDown::new(
+                visualiser,
+                font_size as u16,
+                (textbox_dims.right()-screen_width()*PALETTEEDITOR_MAPPING_DROPDOWN_WIDTH, palette_rect.bottom() + vert_padding),
+                (screen_width()*PALETTEEDITOR_MAPPING_DROPDOWN_WIDTH, textbox_dims.h),
+                screen_height() * TEXTBOX_BORDER_PROPORTION,
+                Some(InputLabel::new("mapping type", font, font_size, WHITE))
+            ).await,
+            length_slider: PaletteEditor::get_slider(4, visualiser, font, title_rect.h, vert_padding),
+            offset_slider: PaletteEditor::get_slider(5, visualiser, font, title_rect.h, vert_padding),
+            sumbit_button: Button::new(
+                (button_size, button_size),
+                (screen_width()*(MENU_SCREEN_PROPORTION/2. - PALETTEEDITOR_HOR_PADDING/2.) - button_size, 
+                         screen_height() - button_size - vert_padding),
+                vec![
+                    Box::new(ButtonImageElement::from_texture(
+                        get_back_gradient(visualiser, 
+                            (screen_width()*(MENU_SCREEN_PROPORTION/2. - PALETTEEDITOR_HOR_PADDING/2.) - button_size) as u16, 
+                            button_size as u16, button_size as u16),
+                        1.0, (0., 0.), 0
+                    )),
+                    Box::new(ButtonColourElement::new(
+                        BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 1
+                    )),
+                    Box::new(ButtonImageElement::from_image(
+                        load_image("assets/tick.png").await.unwrap(),
+                        1.0,
+                        DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
+                        (button_border, button_border),
+                        2
+                    ))
+                ],
+                vec![Box::new(ButtonColourElement::new(
+                    HOVER_WHITE_OVERLAY, (button_size, button_size), (0., 0.), 3
+                ))],
+                vec![Box::new(ButtonColourElement::new(
+                    HOVER_BLACK_OVERLAY, (button_size, button_size), (0., 0.), 4
+                ))]
+            ),
+            cancel_button: Button::new(
+                (button_size, button_size),
+                (screen_width()*(MENU_SCREEN_PROPORTION/2. + PALETTEEDITOR_HOR_PADDING/2.), 
+                         screen_height() - button_size - vert_padding),
+                vec![
+                    Box::new(ButtonImageElement::from_texture(
+                        get_back_gradient(visualiser, 
+                            (screen_width()*(MENU_SCREEN_PROPORTION/2. + PALETTEEDITOR_HOR_PADDING/2.)) as u16, 
+                            button_size as u16, button_size as u16),
+                        1.0, (0., 0.), 0
+                    )),
+                    Box::new(ButtonColourElement::new(
+                        BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 1
+                    )),
+                    Box::new(ButtonImageElement::from_image(
+                        load_image("assets/cross.png").await.unwrap(),
+                        1.0,
+                        DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
+                        (button_border, button_border),
+                        2
+                    ))
+                ],
+                vec![Box::new(ButtonColourElement::new(
+                    HOVER_WHITE_OVERLAY, (button_size, button_size), (0., 0.), 3
+                ))],
+                vec![Box::new(ButtonColourElement::new(
+                    HOVER_BLACK_OVERLAY, (button_size, button_size), (0., 0.), 4
+                ))]
+            ),
+        }
+    }
+
+    fn colour_slider_rect(slider_i: usize, title_height: f32, vert_padding: f32) -> Rect {
+        let start_x = screen_width()*PALETTEEDITOR_COLOUR_SLIDER_START_X;
+
+        // TODO: un spaghetti this
+        let y = match slider_i <= 3 {
+            true => title_height + 3.*vert_padding + screen_height()*(PALETTEEDITOR_PALETTE_HEIGHT) +
+                    screen_width()*(2.*PALETTEEDITOR_COLOUR_POINT_WIDTH+PALETTEEDITOR_BUTTON_WIDTH) +
+                    screen_height()*(PALETTEEDITOR_TEXTBOX_HEIGHT-PALETTEEDITOR_COLOUR_SLIDER_HEIGHT)/2. +
+                    slider_i as f32 * screen_height()*(PALETTEEDITOR_COLOUR_SLIDER_HEIGHT + 
+                        PALETTEEDITOR_TEXTBOX_HEIGHT-PALETTEEDITOR_COLOUR_SLIDER_HEIGHT +
+                        PALETTEEDITOR_TEXTBOX_VERT_PADDING),
+            false => title_height + 7.*vert_padding + screen_height()*(2.*PALETTEEDITOR_PALETTE_HEIGHT+
+                        5.*PALETTEEDITOR_TEXTBOX_HEIGHT+3.*PALETTEEDITOR_TEXTBOX_VERT_PADDING) +
+                    screen_width()*(2.*PALETTEEDITOR_COLOUR_POINT_WIDTH+PALETTEEDITOR_BUTTON_WIDTH) +
+                    screen_height()*(PALETTEEDITOR_TEXTBOX_HEIGHT-PALETTEEDITOR_COLOUR_SLIDER_HEIGHT)/2. +
+                    (slider_i - 4) as f32 * screen_height()*(PALETTEEDITOR_COLOUR_SLIDER_HEIGHT + 
+                        PALETTEEDITOR_TEXTBOX_HEIGHT-PALETTEEDITOR_COLOUR_SLIDER_HEIGHT +
+                        PALETTEEDITOR_TEXTBOX_VERT_PADDING),
+        };
+
+        Rect::new(
+            start_x, y,
+            screen_width()*(MENU_SCREEN_PROPORTION-2.*PALETTEEDITOR_HOR_PADDING-PALETTEEDITOR_TEXTBOX_WIDTH) - 
+                start_x - screen_height()*PALETTEEDITOR_COLOUR_SLIDER_HEIGHT,
+            screen_height()*PALETTEEDITOR_COLOUR_SLIDER_HEIGHT
+        )
+    }
+
+    fn get_textbox_dims(title_height: f32, vert_padding: f32) -> Rect {
+        let rect = PaletteEditor::colour_slider_rect(0, title_height, vert_padding);
+        Rect::new(
+            rect.right() + screen_width()*PALETTEEDITOR_HOR_PADDING + rect.h*0.8,
+            0.,
+            screen_width()*PALETTEEDITOR_TEXTBOX_WIDTH,
+            screen_height()*PALETTEEDITOR_TEXTBOX_HEIGHT
+        )
+    }
+
+    fn get_slider(slider_i: usize, visualiser: &Visualiser, font: Font, title_height: f32, vert_padding: f32) -> Slider {
+        let font_size = screen_width()*PALETTEEDTIOR_FONT_PROPORTION;
+
+        let rect = PaletteEditor::colour_slider_rect(slider_i, title_height, vert_padding);
+
+        let textbox_start_x = rect.right() + screen_width()*PALETTEEDITOR_HOR_PADDING + rect.h*0.8;
+        let textbox_width = screen_width()*PALETTEEDITOR_TEXTBOX_WIDTH;
+        let textbox_height = screen_height()*PALETTEEDITOR_TEXTBOX_HEIGHT;
+
+        Slider::new(
+            Some(
+                InputLabel::new(
+                    match slider_i {
+                        0 => "red",
+                        1 => "green",
+                        2 => "blue",
+                        3 => "alpha",
+                        4 => "length",
+                        _ => "offset"
+                    }, 
+                    font, 
+                    font_size, 
+                    WHITE
+                )),
+            0., 
+            match slider_i <= 3 {
+                true => 255.,
+                false => 100.
+            },
+            None, 
+            Some(
+                TextBox::new(
+                    None, 
+                    String::from(""),
+                    textbox_width,
+                    textbox_height,
+                    textbox_start_x as u16,
+                    rect.y - screen_height()*(PALETTEEDITOR_TEXTBOX_HEIGHT-PALETTEEDITOR_COLOUR_SLIDER_HEIGHT)/2.,
+                    get_back_gradient(visualiser, textbox_start_x as u16, textbox_width as u16, textbox_height as u16),
+                    TextParams { 
+                        font, 
+                        font_size: font_size as u16,
+                        color: WHITE ,
+                        ..Default::default()
+                    }
+                )),
+                rect.x, rect.y, rect.w, rect.h,
+            match slider_i <= 3 {
+                true => Box::new(GradientSliderBar::empty()),
+                false => Box::new(SolidSliderBar::new(LAYERMANAGER_LAYER_TYPE_COLOUR))
+            },
+            rect.h*0.8,
+            match slider_i {
+                0 => Color { r: 0.5, g: 0., b: 0., a: 1.},
+                1 => Color { r: 0., g: 0.5, b: 0., a: 1.},
+                2 => Color { r: 0., g: 0., b: 0.5, a: 1.},
+                3 => Color { r: 0.5, g: 0.5, b: 0.5, a: 1.},
+                _ => LAYERMANAGER_LAYER_TYPE_COLOUR
+            },
+            match slider_i {
+                0 => Color { r: 1., g: 0., b: 0., a: 1. },
+                1 => Color { r: 0., g: 1., b: 0., a: 1. },
+                2 => Color { r: 0., g: 0., b: 1., a: 1. },
+                3 => Color { r: 1., g: 1., b: 1., a: 1. },
+                _ => WHITE
+            }
+            
+        )
+    }
+
+    fn load_colour_points(&mut self, palette: &Palette) {
+        self.colour_point_editors = Vec::with_capacity(palette.colour_map.len());
+        for point in palette.colour_map.iter() {
+            self.colour_point_editors.push(ColourPointEditor::new(point, self.colour_map_rect));
+        }
+    }
+
+    fn draw_title(&self) {
+        draw_texture(self.title_back, 0., 0., WHITE);
+        draw_rectangle(self.inner_title_rect.x, self.inner_title_rect.y, self.inner_title_rect.w, self.inner_title_rect.h, BLACK);
+        draw_text_ex(
+            "PALETTE EDITOR",
+            self.inner_title_rect.center().x - self.title_text_measure.width/2.,
+            self.inner_title_rect.center().y + self.title_text_measure.height/2.,
+            TextParams { 
+                font: self.font, 
+                font_size: (screen_width()*STATE_TEXT_FONT_PROPORTION) as u16, 
+                color: self.title_text_colour, 
+                ..Default::default() 
+            }
+        );
+    }
+
+    fn update_add_button(&mut self, palette: &mut Palette) -> bool {
+        if palette.get_add_point_percent().is_none() { return false }
+
+        self.add_button.update();
+        if !self.add_button.clicked { return false }
+
+        palette.add_point();
+        self.load_colour_points(palette);
+        true
+    }
+
+    fn update_delete_button(&mut self, palette: &mut Palette, selected_point: Option<usize>) -> bool {
+        let index = match selected_point {
+            None => {return false},
+            Some(index) => index
+        };
+        if !palette.can_delete_point() { return false }
+
+        self.delete_button.update();
+        if !self.delete_button.clicked { return false }
+
+        self.delete_button.hovering = false;
+        palette.delete_point(index);
+        self.load_colour_points(palette);
+        true
+    }
+
+    fn update_colour_sliders(&mut self, palette: &mut Palette, selected_point: Option<usize>) -> bool {
+        let index = match selected_point {
+            None => {return false},
+            Some(index) => index
+        };
+        let colour = palette.colour_map[index].colour;
+        let mut update_colour = false;
+
+        self.red_slider.slider_bar.make_gradient(
+            self.red_slider.rect, 
+            color_with_params(&colour, Some(0.), None, None, None), 
+            color_with_params(&colour, Some(1.), None, None, None)
+        );
+        self.red_slider.percentage = colour.r;
+        self.red_slider.update();
+        if self.red_slider.percentage != colour.r { update_colour = true }
+
+        self.green_slider.slider_bar.make_gradient(
+            self.green_slider.rect, 
+            color_with_params(&colour, None, Some(0.), None, None), 
+            color_with_params(&colour, None, Some(1.), None, None), 
+        );
+        self.green_slider.percentage = colour.g;
+        self.green_slider.update();
+        if self.green_slider.percentage != colour.g { update_colour = true }
+
+        self.blue_slider.slider_bar.make_gradient(
+            self.blue_slider.rect, 
+            color_with_params(&colour, None, None, Some(0.), None), 
+            color_with_params(&colour, None, None, Some(1.), None), 
+        );
+        self.blue_slider.percentage = colour.b;
+        self.blue_slider.update();
+        if self.blue_slider.percentage != colour.b { update_colour = true }
+
+        self.alpha_slider.slider_bar.make_gradient(
+            self.alpha_slider.rect, 
+            color_with_params(&colour, None, None, None, Some(0.)),
+            color_with_params(&colour, None, None, None, Some(1.))
+        );
+        self.alpha_slider.percentage = colour.a;
+        self.alpha_slider.update();
+        if self.alpha_slider.percentage != colour.a { update_colour = true }
+
+        if update_colour {
+            palette.update_colour(
+                index, 
+                Some(self.red_slider.percentage), 
+                Some(self.green_slider.percentage), 
+                Some(self.blue_slider.percentage), 
+                Some(self.alpha_slider.percentage)
+            );
+            self.colour_point_editors[index].colour.r = self.red_slider.percentage;
+            self.colour_point_editors[index].colour.g = self.green_slider.percentage;
+            self.colour_point_editors[index].colour.b = self.blue_slider.percentage;
+            self.colour_point_editors[index].colour.a = self.alpha_slider.percentage;
+            true
+        } else {
+            false
+        }
+    }
+}
+impl MenuType for PaletteEditor {
+    fn update(&mut self, visualiser: &mut Visualiser) -> MenuSignal {
+        let palette = &mut visualiser.layers.layers[self.layer_index].palette;
+        
+        self.draw_title();
+
+        let mut changed_this_frame = false;
+
+        draw_texture(
+            palette.get_full_gradient(self.colour_map_rect.w, self.colour_map_rect.h), 
+            self.colour_map_rect.x, self.colour_map_rect.y, WHITE
+        );
+        let mut selected_point: Option<usize> = None;
+        for (i, point_editor) in self.colour_point_editors.iter_mut().enumerate() {
+            if let Some(new_percent) = point_editor.update(
+                selected_point.is_some()
+            ) {
+                if visualiser.layers.layers[self.layer_index].palette.change_point_percent(new_percent, i) {
+                    changed_this_frame = true;
+                }
+            }
+            if point_editor.selected { selected_point = Some(i) }
+        }
+
+        let palette = &mut visualiser.layers.layers[self.layer_index].palette;
+
+        if self.update_colour_sliders(palette, selected_point) {
+            changed_this_frame = true;
+        }
+
+        if self.update_add_button(palette) {
+            changed_this_frame = true;
+        }
+
+        if self.update_delete_button(palette, selected_point) {
+            changed_this_frame = true;
+        }
+
+        draw_texture(self.bar_grad, self.bar_rect.x, self.bar_rect.y, WHITE);
+        draw_texture(
+            palette.get_full_palette(self.palette_rect.w, self.palette_rect.h, visualiser.max_iterations), 
+            self.palette_rect.x, self.palette_rect.y, WHITE
+        );
+
+        if !self.mapping_type.open {
+            self.length_slider.percentage = palette.get_palette_length()/100.;
+            self.length_slider.update();
+            if palette.set_palette_length(self.length_slider.percentage * self.length_slider.conversion) {
+                changed_this_frame = true;
+            }
+
+            self.offset_slider.percentage = palette.get_offset()/100.;
+            self.offset_slider.update();
+            if palette.set_offset(self.offset_slider.percentage * self.length_slider.conversion) {
+                changed_this_frame = true;
+            }
+        } else {
+            self.length_slider.draw();
+            self.offset_slider.draw();
+        }
+        
+
+        if let Some(new) = self.mapping_type.update(&palette.mapping_type) {
+            palette.mapping_type = new;
+            changed_this_frame = true;
+        }
+
+        if changed_this_frame {
+            visualiser.layers.layers[self.layer_index].palette.generate_palette(visualiser.max_iterations);
+            visualiser.generate_image();
+        }
+
+        self.sumbit_button.update();
+        if self.sumbit_button.clicked {
+            return MenuSignal::RefreshGradients;
+        }
+
+        self.cancel_button.update();
+        if self.cancel_button.clicked {
+            visualiser.layers.layers[self.layer_index].palette = self.old_palette.clone();
+            visualiser.layers.layers[self.layer_index].palette.generate_palette(visualiser.max_iterations);
+            visualiser.generate_image();
+            return MenuSignal::RefreshGradients;
+        }
+
+        MenuSignal::None
+    }
+
+    fn get_editing(&mut self) -> bool {
+        for slider in vec![&self.red_slider, &self.green_slider, &self.blue_slider, &self.alpha_slider,
+                                    &self.length_slider, &self.offset_slider] {
+            if let Some(s) = slider.percentage_text_box.as_ref().and_then(|tb| Some(tb.selected)) {
+                if s == true { return true }
+            }
+        }
+        false
+    }
+
+    fn open_layer_to_edit(&mut self, index: usize, visualiser: &Visualiser) {
+        self.layer_index = index;
+        self.old_palette = visualiser.layers.layers[index].palette.clone();
+
+        self.load_colour_points(&visualiser.layers.layers[index].palette);
     }
 }
