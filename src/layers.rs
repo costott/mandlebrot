@@ -8,43 +8,9 @@ use macroquad::prelude::*;
 
 use std::ops::Range;
 
-use super::*;
-use super::menu::DropDownType;
+use crate::palettes::Palette;
 
-fn i_to_world_index(i: u32, colour_map: &Vec<Color>, length: f32, max_iterations: f32) -> f32 {
-    (i as f32 / (max_iterations+1.)) * (1000. / length) * (colour_map.len()-1) as f32
-}
-
-fn world_index_to_i(world_index: f32, colour_map: &Vec<Color>, length: f32, max_iterations: f32) -> u32 {
-    (world_index * (1. / (colour_map.len()-1) as f32) * (length / 1000.) * (max_iterations+1.)).floor() as u32
-}
-
-fn make_pallete(colour_map: &Vec<Color>, length: f32, max_iterations: f32) -> Vec<Color> {
-    let mut pallete = Vec::with_capacity(max_iterations as usize);
-
-    for i in 0..=max_iterations as u32 {
-        let world_index = i_to_world_index(i, colour_map, length, max_iterations);
-        let lower_world_index = world_index.floor();
-        // convert world index to the colour it represents in the pallete
-        let colour_index = world_index.floor() as usize % (colour_map.len()-1);
-        
-        let lower = colour_map[colour_index];
-        let lower_i = world_index_to_i(lower_world_index, colour_map, length, max_iterations);
-        // UNCOMMENT IF FIRST COLOUR SHOULD BE A DIFFERENT COLOUR TO THE SCHEME
-        // (NEED TO MAKE LOWER MUT)
-        // if world_index < (COLOUR_MAP.len()-1) as f32 && colour_index == 0 {
-        //     lower = BLACK;
-        // }
-        let upper = colour_map[(colour_index+1).min(colour_map.len()-1)];
-        let upper_i = world_index_to_i(lower_world_index+1., colour_map, length, max_iterations);
-
-        let inner_fraction = (i-lower_i) as f32 / (upper_i-lower_i) as f32;
-
-        pallete.push(interpolate_colour(lower, upper, inner_fraction));
-    }
-
-    pallete
-}
+use super::{*, menu::DropDownType};
 
 /// analyse the given complex number, letting the implementors
 /// calculate their outputs
@@ -369,6 +335,13 @@ impl ColourImplemetor {
     fn new() -> ColourImplemetor {
         ColourImplemetor { output: 0.0 }
     }
+
+    fn out_set(&mut self, abs2_z: f64, i: u32) {
+        let log_zmod = f64::log2(abs2_z) / 2.0;
+        let nu = f64::log2(log_zmod);
+        let smooth_iteration = i as f64 + 1.0 - nu;
+        self.output = smooth_iteration;
+    }
 }
 impl LayerImplementor for ColourImplemetor {
     fn before(&mut self, _max_iterations: u32) {}
@@ -377,16 +350,10 @@ impl LayerImplementor for ColourImplemetor {
     fn during_big(&mut self, _z: &BigComplex, _i: u32) {}
 
     fn out_set_double(&mut self, z: Complex, i: u32) {
-        let log_zmod = f64::log2(z.abs_squared()) / 2.0;
-        let nu = f64::log2(log_zmod);
-        let smooth_iteration = i as f64 + 1.0 - nu;
-        self.output =  smooth_iteration;
+        self.out_set(z.abs_squared(), i);
     }
     fn out_set_big(&mut self, z: &BigComplex, i: u32) {
-        let log_zmod = f64::log2(z.abs_squared()) / 2.0;
-        let nu = f64::log2(log_zmod);
-        let smooth_iteration = i as f64 + 1.0 - nu;
-        self.output = smooth_iteration;
+        self.out_set(z.abs_squared(), i);
     }
 
     fn in_set_double(&mut self, _z: Complex) {
@@ -403,7 +370,7 @@ impl LayerImplementor for ColourImplemetor {
 
 #[derive(Clone)]
 /// orbit trapped algorithm looking at the minimum distance between an orbit and a trap,
-/// calculating a trapped index to be used in the pallete
+/// calculating a trapped index to be used in the palette
 struct OrbitTrapImplementor {
     output: f64,
     min_distance2: f64,
@@ -710,10 +677,12 @@ impl Layers {
     fn place_range_constraints(layers: &mut Vec<Layer>) {
         if layers.len() == 1 {
             let layer = &mut layers[0];
-            // ensure this layer exists in some form
-            layer.set_range_constraint(LayerRange::InSet);
-            layer.set_range_constraint(LayerRange::OutSet);
-            layer.set_range_constraint(LayerRange::Both);
+            // ensure this layer exists in some form and can pick any state
+            layer.set_range_constraint(match layer.layer_range {
+                LayerRange::InSet => LayerRange::OutSet,
+                LayerRange::OutSet => LayerRange::InSet,
+                LayerRange::Both => LayerRange::OutSet
+            });
             return;
         }
 
@@ -851,11 +820,11 @@ impl Layers {
         self.update_implementors();
     }
 
-    /// makes sure all the palletes for the layers
+    /// makes sure all the palettes for the layers
     /// are updated for the current max iterations
-    pub fn generate_palletes(&mut self, max_iterations: f32) {
+    pub fn generate_palettes(&mut self, max_iterations: f32) {
         for layer in self.layers.iter_mut() {
-            layer.generate_pallete(max_iterations);
+            layer.palette.generate_palette(max_iterations);
         }
     }
 
@@ -952,9 +921,7 @@ pub struct Layer {
     /// stores the maximum position the layer's allowed to be at
     position_constraint: Option<Range<usize>>,
     pub strength: f32,
-    colour_map: Vec<Color>,
-    pallete_length: f32,
-    pub pallete: Vec<Color>
+    pub palette: Palette
 }
 impl Layer {
     /// # Params
@@ -962,23 +929,16 @@ impl Layer {
     /// 
     /// `strength`: how much of the current colour generated by the previous layers should it override
     /// **0.0 => None, 1.0 => All**
-    /// 
-    /// `colour_map`: an outline of the main colours used in the colour scheme
-    /// **THIS IS NOT NEEDED IF THE LAYERTYPE IS SHADING3D**
-    /// 
-    /// `pallete_length`: how long 1 repetition of the colour map should be in the 1000.0 length pallete
     pub fn new(
         layer_type: LayerType, 
         layer_range: LayerRange, 
         strength: f32, 
-        colour_map: Vec<Color>, 
-        pallete_length: f32
+        palette: Palette
     ) -> Layer {
         Layer {
-            layer_type, layer_range, strength, colour_map, pallete_length,
+            layer_type, layer_range, strength, palette,
             range_constraints: None,
             position_constraint: None,
-            pallete: Vec::new(),
             name: String::from("Layer")
         }
     }
@@ -1053,21 +1013,9 @@ impl Layer {
         self.range_constraints.is_none()
     }
 
-    pub fn generate_pallete(&mut self, max_iterations: f32) {
-        // idk why the +1 is needed here but not before but it doesn't work without it 
-        if self.pallete.len() == max_iterations as usize + 1 {return}
-        self.pallete = make_pallete(&self.colour_map, self.pallete_length, max_iterations);
+    pub fn change_palette_length(&mut self, change: f32) {
+        self.palette.change_palette_length(change);
     }
-
-    pub fn change_pallete_length(&mut self, change: f32, max_iterations: f32) {
-        self.pallete_length += change;
-        self.pallete_length = f32::min(f32::max(0., self.pallete_length), 1000.);
-        self.pallete = make_pallete(&self.colour_map, self.pallete_length, max_iterations)
-    }
-
-    pub fn get_pallete_length(&self) -> f32 {
-        self.pallete_length
-    } 
 
     pub fn change_strength(&mut self, new: f32) -> bool {
         if self.strength == new { return false }
@@ -1083,12 +1031,12 @@ impl Layer {
 
     /// calculate the colour for the Colour layer type
     fn colour(&self, diverge_num: f64) -> Color {
-        escape_time(diverge_num, &self.pallete)
+        escape_time(diverge_num, &self.palette.palette_cache)
     }
 
     /// calculate the colour for the Shading layer type
     fn shading(&self, diverge_num: f64, colour: Option<Color>) -> Color {
-        let shade = escape_time(diverge_num, &self.pallete);
+        let shade = escape_time(diverge_num, &self.palette.palette_cache);
         // first layer can't be a shading layer so colour will be Some,
         // so unwrap will always succeed
         interpolate_colour(colour.unwrap(), BLACK, 1.0-shade.r)
@@ -1103,11 +1051,11 @@ impl Layer {
 
     /// calculate the colour for the colourorbittrap layer type
     fn orbit_trap_colour(&self, trapped_i: f64) -> Color {
-        escape_time(trapped_i, &self.pallete)
+        escape_time(trapped_i, &self.palette.palette_cache)
     }
 
     fn orbit_trap_shading(&self, trapped_i: f64, colour: Option<Color>) -> Color {
-        let shade = escape_time(trapped_i, &self.pallete);
+        let shade = escape_time(trapped_i, &self.palette.palette_cache);
         // first layer can't be a shading layer so colour will be Some,
         // so unwrap will always succeed
         interpolate_colour(colour.unwrap(), BLACK, 1.0-shade.r)

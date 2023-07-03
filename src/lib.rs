@@ -17,7 +17,7 @@ use dashu_float::FBig;
 
 pub mod complex;
 use complex::*;
-pub mod palletes;
+pub mod palettes;
 pub mod layers;
 use layers::{Layers, LayerType};
 mod menu;
@@ -43,7 +43,7 @@ pub const BAILOUT_ORBIT_TRAP: f64 = 20.0;
 pub const ZOOM_PERCENT_INC: f64 = 0.5f64;
 pub const START_ZOOM_SPEED: f64 = 1f64;
 pub const MAX_ITER_INC_SPEED: f32 = 10f32;
-pub const PALLETE_LENGTH_INC_SPEED: f32 = 50f32;
+pub const PALLETE_LENGTH_INC_SPEED: f32 = 5f32;
 
 pub const THREADS: usize = 12; //12 14 15 17
 
@@ -849,16 +849,13 @@ impl Visualiser {
     /// generates and stores the mandlebrot image
     /// for the current parameters
     pub fn generate_image(&mut self) {
-        // if self.rendering && self.arb_precision {
-        //     self.cancel_current_render();
-        // }
         if self.rendering {
             self.quality += 1;
             self.cancel_current_render();
         }
         self.rendering = true;
 
-        self.layers.generate_palletes(self.max_iterations);
+        self.layers.generate_palettes(self.max_iterations);
 
         let center = match &self.center {
             ComplexType::Big(c) => if !self.arb_precision {
@@ -923,25 +920,6 @@ impl Visualiser {
 
         let start_x = screen_width() - self.current_dimensions.x as f32;
         draw_texture(self.texture, start_x, 0.0, WHITE);
-        
-        let mut l = 0.0;
-        for layer in self.layers.layers.iter() {
-            match layer.layer_type {
-                LayerType::Colour | LayerType::ColourOrbitTrap(_) => {},
-                _ => {continue}
-            }
-            let size = self.current_dimensions.x as f32 / layer.pallete.len() as f32;
-            for (i, colour) in layer.pallete.iter().enumerate() {
-                draw_rectangle(
-                    start_x + i as f32 * size, 
-                    l * 10., 
-                    size, 
-                    10., 
-                    *colour
-                );
-            }
-            l += 1.0;
-        }
 
         draw_text(
             &get_fps().to_string(),
@@ -1074,6 +1052,7 @@ impl Visualiser {
             (false, true) => 1.0,
             _ => {iter = false; 0.0}
         };
+        self.max_iterations = self.max_iterations.max(1.0);
 
         self.max_iterations = match (is_key_pressed(KeyCode::Minus), is_key_pressed(KeyCode::Equal)) {
             (true, false) => {
@@ -1111,7 +1090,7 @@ impl Visualiser {
         for layer in self.layers.layers.iter_mut() {
             match layer.layer_type {
                 LayerType::Colour | LayerType::ColourOrbitTrap(_) => {
-                    layer.change_pallete_length(add, self.max_iterations);
+                    layer.change_palette_length(add);
                 },
                 _ => {continue}
             }
