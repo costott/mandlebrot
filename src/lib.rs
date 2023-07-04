@@ -19,7 +19,7 @@ pub mod complex;
 use complex::*;
 pub mod palettes;
 pub mod layers;
-use layers::{Layers, LayerType};
+use layers::Layers;
 mod menu;
 use menu::Menu;
 
@@ -43,7 +43,6 @@ pub const BAILOUT_ORBIT_TRAP: f64 = 20.0;
 pub const ZOOM_PERCENT_INC: f64 = 0.5f64;
 pub const START_ZOOM_SPEED: f64 = 1f64;
 pub const MAX_ITER_INC_SPEED: f32 = 10f32;
-pub const PALLETE_LENGTH_INC_SPEED: f32 = 5f32;
 
 pub const THREADS: usize = 12; //12 14 15 17
 
@@ -72,7 +71,7 @@ impl App {
         loop {
             self.visualiser.draw();
             if !self.menu.get_editing() {
-                self.visualiser.user_move();
+                self.visualiser.update();
                 get_char_pressed(); // flush input queue
             } 
 
@@ -494,6 +493,10 @@ impl ScreenDimensions {
             (_, _) => &res
         })
     }
+
+    fn numpixels(&self) -> usize {
+        self.x * self.y
+    }
 }
 
 /// returns the number of steps it took to diverge
@@ -599,7 +602,8 @@ struct Renderer {
     layers: Layers,
     quality: usize,
     thread_cancel: Arc<AtomicBool>,
-    reference_orbit: Arc<Option<ReferenceOrbit>>
+    reference_orbit: Arc<Option<ReferenceOrbit>>,
+    progress_tracker: Arc<Mutex<usize>>
 }
 impl Renderer {
     fn render_image(self) { 
@@ -711,6 +715,8 @@ impl Renderer {
                 );
             }
         }
+
+        *self.progress_tracker.lock().unwrap() += width*height;
     }
 
     fn set_pixels_perturbation(&self, dc: Complex, ref_z: &Vec<Complex>, max_ref_iteration: usize, x: usize, y: usize, split: &ThreadSplitter) {
@@ -730,6 +736,8 @@ impl Renderer {
                 );
             }
         }
+
+        *self.progress_tracker.lock().unwrap() += width*height;
     }
 }
 
@@ -759,9 +767,98 @@ impl ReferenceOrbit {
     }
 }
 
+/// responsible for holding the data required whilst
+/// generating the image to be saved to the machine
+struct Exporter {
+    exporting: bool,
+    images_path: std::path::PathBuf,
+    name: String,
+    dims: ScreenDimensions,
+    image: Arc<Mutex<Image>>,
+    progress_tracker: Arc<Mutex<usize>>
+}
+impl Exporter {
+    fn new() -> Exporter {
+        let mut images_path = std::env::current_dir().unwrap();
+        images_path.push("images");
+
+        match fs::create_dir(&images_path) {
+            _ => ()
+        }
+
+        Exporter { 
+            exporting: false, 
+            name: String::from(""), 
+            dims: ScreenDimensions::from_tuple((0, 0)),
+            images_path: images_path,
+            image: Arc::new(Mutex::new(Image::empty())),
+            progress_tracker: Arc::new(Mutex::new(0))
+        }
+    }
+
+    fn start_export(
+        &mut self, 
+        name: &String, 
+        dimensions: ScreenDimensions,
+        current_dimensions: &ScreenDimensions,
+        visualiser_pixel_step: f64
+    ) -> f64 {
+        self.name = name.clone();
+        self.dims = dimensions;
+
+        let mut images_path = std::env::current_dir().unwrap();
+        images_path.push("images");
+
+        match fs::create_dir(&images_path) {
+            _ => ()
+        }
+
+        // preserve height of the image
+        let screen_height = current_dimensions.y as f64 * visualiser_pixel_step;
+        let pixel_step = screen_height / self.dims.y as f64;
+
+        self.image = Arc::new(Mutex::new(
+            Image::gen_image_color(self.dims.x as u16, self.dims.y as u16, 
+                                   Color::new(0.0, 0.0, 0.0, 1.0)
+        )));
+        self.progress_tracker = Arc::new(Mutex::new(0));
+        self.exporting = true;
+
+        pixel_step
+    }
+
+    fn cancel_export(&mut self) {
+        self.image = Arc::new(Mutex::new(Image::empty()));
+        self.exporting = false;
+    }
+
+    fn update(&mut self, thread_pool: &ThreadPool) {
+        if !(thread_pool.active_count() == 0 && thread_pool.queued_count() == 0) {
+            return
+        }
+
+        self.finish_export();
+    }
+
+    fn finish_export(&mut self) {
+        let datetime = chrono::offset::Local::now();
+        let date = StrftimeItems::new("%Y%m%d");
+        let time = StrftimeItems::new("%H_%M_%S");
+        self.name = self.name.replace("[date]", &format!["{}", datetime.format_with_items(date.clone())]);
+        self.name = self.name.replace("[time]", &format!["{}", datetime.format_with_items(time.clone())]);
+        self.name = format!["{}_{}", self.name, self.dims.as_string()];
+        self.images_path.push(self.name.clone());
+
+        let path = &format!["images/{}.png",
+            self.name.clone()
+        ];
+        self.image.lock().unwrap().export_png(path);
+
+        self.exporting = false;
+    }
+}
+
 pub struct Visualiser {
-    view_dimensions: ScreenDimensions,
-    screenshot_dimensions: ScreenDimensions,
     current_dimensions: ScreenDimensions,
     center: ComplexType,
     pixel_step: f64,
@@ -780,19 +877,18 @@ pub struct Visualiser {
     /// quality before decreasing quality when user stopped moving
     saved_quality: usize,
     arb_precision: bool,
-    moving: bool
+    moving: bool,
+    exporter: Exporter,
+    progress_tracker: Arc<Mutex<usize>>
 }
 impl Visualiser {
     pub fn new(
         pixel_step: f64, 
         max_iterations: f32, 
         view_dimensions: (usize, usize),
-        screenshot_dimensions: (usize, usize),
         layers: Layers
     ) -> Visualiser {
         Visualiser { pixel_step, max_iterations, layers,
-            view_dimensions: ScreenDimensions::from_tuple(view_dimensions), 
-            screenshot_dimensions: ScreenDimensions::from_tuple(screenshot_dimensions),
             current_dimensions: ScreenDimensions::from_tuple(view_dimensions),
             center: ComplexType::Double(Complex::new(-0.5, 0.0)),
             image: Arc::new(Mutex::new(
@@ -807,7 +903,9 @@ impl Visualiser {
             quality: 2,
             saved_quality: 1,
             arb_precision: false,
-            moving: false
+            moving: false,
+            exporter: Exporter::new(),
+            progress_tracker: Arc::new(Mutex::new(0))
         }
     }
 
@@ -829,7 +927,6 @@ impl Visualiser {
     pub fn set_view_dimensions(&mut self, dimensions: &ScreenDimensions) {
         self.cancel_current_render();
 
-        self.view_dimensions = dimensions.clone();
         self.current_dimensions = dimensions.clone();
         self.image = Arc::new(Mutex::new(
             Image::gen_image_color(self.current_dimensions.x as u16, self.current_dimensions.y as u16, 
@@ -844,11 +941,9 @@ impl Visualiser {
         self.thread_pool.join();
         self.thread_cancel.store(false, Ordering::Relaxed);
         self.rendering = false;
-    }   
+    }  
 
-    /// generates and stores the mandlebrot image
-    /// for the current parameters
-    pub fn generate_image(&mut self) {
+    fn generate_image(&mut self) {
         if self.rendering {
             self.quality += 1;
             self.cancel_current_render();
@@ -857,6 +952,29 @@ impl Visualiser {
 
         self.layers.generate_palettes(self.max_iterations);
 
+        self.progress_tracker = Arc::new(Mutex::new(0));
+        self.generate_given_image(self.image.clone(), self.current_dimensions.clone(), self.pixel_step, Arc::clone(&self.progress_tracker));
+
+        // if !self.arb_precision && self.quality > 1 {
+        //     self.thread_pool.join();
+        // } 
+        if self.quality > 1 {
+            self.thread_pool.join();
+            self.rendering = false;
+        } 
+        
+        self.texture = Texture2D::from_image(&self.image.lock().unwrap());
+    }
+
+    /// generates and stores the mandlebrot image
+    /// for the current parameters
+    pub fn generate_given_image(
+        &mut self, 
+        image: Arc<Mutex<Image>>, 
+        dimensions: ScreenDimensions, 
+        pixel_step: f64,
+        progress_tracker: Arc<Mutex<usize>>
+    ) {
         let center = match &self.center {
             ComplexType::Big(c) => if !self.arb_precision {
                 ComplexType::Double(c.to_complex())
@@ -878,40 +996,33 @@ impl Visualiser {
             )))
         };
         
-        let thread_height = self.current_dimensions.y / THREADS;
+        let thread_height = dimensions.y / THREADS;
+
         for t in 0..THREADS {
             let renderer = Renderer {
-                dimensions: self.current_dimensions.clone(),
+                dimensions: dimensions.clone(),
                 start_y: t * thread_height,
                 thread_height,
                 center: center.clone(),
-                pixel_step: self.pixel_step.clone(),
+                pixel_step: pixel_step.clone(),
                 max_iterations: self.max_iterations.clone() as u32,
-                image: Arc::clone(&self.image),
+                image: Arc::clone(&image),
                 layers: self.layers.clone(),
                 quality: self.quality.clone(),
                 thread_cancel: Arc::clone(&self.thread_cancel),
-                reference_orbit: Arc::clone(&reference_orbit)
+                reference_orbit: Arc::clone(&reference_orbit),
+                progress_tracker: Arc::clone(&progress_tracker)
             };
             self.thread_pool.execute(move || {
                 renderer.render_image()
             });
         }
-        // if !self.arb_precision && self.quality > 1 {
-        //     self.thread_pool.join();
-        // } 
-        if self.quality > 1 {
-            self.thread_pool.join();
-            self.rendering = false;
-        } 
-
-        self.texture = Texture2D::from_image(&self.image.clone().lock().unwrap());
     }
 
     /// draw a generated image to the screen
     pub fn draw(&mut self) {
         if self.rendering {
-            self.texture = Texture2D::from_image(&self.image.clone().lock().unwrap());
+            self.texture = Texture2D::from_image(&self.image.lock().unwrap());
 
             if self.thread_pool.active_count() == 0 && self.thread_pool.queued_count() == 0 {
                 self.rendering = false;
@@ -942,6 +1053,14 @@ impl Visualiser {
             20., 
             BLACK
         );
+    }
+
+    fn update(&mut self) {
+        if !self.exporter.exporting {
+            self.user_move();
+        } else {
+            self.exporter.update(&self.thread_pool);
+        }
     }
 
     fn move_view_double(&self, center: &Complex, dt: f64) -> (ComplexType, bool) {
@@ -1073,32 +1192,6 @@ impl Visualiser {
         iter
     }
 
-    /// lets the user shift the pallete length
-    /// 
-    /// returns if the pallete has been changed or not
-    fn user_shift_pallete(&mut self, dt: f64) -> bool {
-        let mut pallete = true;
-
-        let add = PALLETE_LENGTH_INC_SPEED * dt as f32 * match (is_key_down(KeyCode::I), is_key_down(KeyCode::P)) {
-            (true, false) => -1.0,
-            (false, true) => 1.0,
-            _ => {pallete = false; 0.0}
-        };
-
-        if !pallete {return false}
-
-        for layer in self.layers.layers.iter_mut() {
-            match layer.layer_type {
-                LayerType::Colour | LayerType::ColourOrbitTrap(_) => {
-                    layer.change_palette_length(add);
-                },
-                _ => {continue}
-            }
-        }
-
-        true
-    }
-
     /// lets the user teleport back to the top of the set
     /// 
     /// returns if a teleport has happened
@@ -1111,51 +1204,15 @@ impl Visualiser {
         true
     }
 
-    /// lets the user export the current view to png
-    fn user_export(&mut self) {
-        if !is_key_pressed(KeyCode::Key0) {return}
-
-        let mut images_path = std::env::current_dir().unwrap();
-        images_path.push("images");
-
-        match fs::create_dir(&images_path) {
-            _ => ()
-        }
-
-        let datetime = chrono::offset::Local::now();
-        let fmt = StrftimeItems::new("%Y%m%d_%H_%M_%S");
-        let image_name = format!["{}_{}", datetime.format_with_items(fmt.clone()), self.screenshot_dimensions.as_string()];
-        images_path.push(image_name.clone());
-        // fs::create_dir(&images_path).unwrap();
-
-        // change dimensions and pixel step for higher quality
-        let old_pixel_step = self.pixel_step.clone();
-        let screen_height = self.view_dimensions.y as f64 * self.pixel_step;
-        self.pixel_step = screen_height / self.screenshot_dimensions.y as f64;
+    fn start_export(&mut self, name: &String, dimensions: ScreenDimensions) {
+        let pixel_step = self.exporter.start_export(name, dimensions,  &self.current_dimensions, self.pixel_step);
         self.quality = 1;
-        self.current_dimensions = self.screenshot_dimensions.clone();
-        self.image = Arc::new(Mutex::new(
-            Image::gen_image_color(self.current_dimensions.x as u16, self.current_dimensions.y as u16, 
-                                   Color::new(0.0, 0.0, 0.0, 1.0)
-        )));
-
-        self.generate_image();
-        if self.thread_pool.active_count() != 0 || self.thread_pool.queued_count() != 0 {
-            self.thread_pool.join();
-        }
-        let path = &format!["images/{}.png",
-            image_name.clone()
-        ];
-        self.image.clone().lock().unwrap().export_png(path);
-
-        self.pixel_step = old_pixel_step;
-        self.current_dimensions = self.view_dimensions.clone();
-        self.image = Arc::new(Mutex::new(
-            Image::gen_image_color(self.current_dimensions.x as u16, self.current_dimensions.y as u16, 
-                                   Color::new(0.0, 0.0, 0.0, 1.0)
-        )));
-
-        self.generate_image();
+        self.generate_given_image(
+            Arc::clone(&self.exporter.image), 
+            self.exporter.dims.clone(), 
+            pixel_step,
+            Arc::clone(&self.exporter.progress_tracker)
+        );
     }
 
     fn change_quality(&mut self) {
@@ -1181,16 +1238,14 @@ impl Visualiser {
         let moved_view = self.user_move_view(dt);
         let zoomed = self.user_zoom(dt);
         let iter = self.user_change_max_iteration(dt);
-        let pallete = self.user_shift_pallete(dt);
         let tp = self.user_teleport();
 
         if is_key_pressed(KeyCode::Z) {
             println!("{} {} = {}x zoom\n{:?}\nreal: {} im: {}", 
                 self.max_iterations, self.pixel_step, 0.005/self.pixel_step, self.center, self.center.real_string(), self.center.im_string());
         }
-        self.user_export();   
     
-        if moved_view || zoomed || iter || pallete || tp {
+        if moved_view || zoomed || iter || tp {
             self.moving = true;
             self.change_quality();
             self.generate_image();

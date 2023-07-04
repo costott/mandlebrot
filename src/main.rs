@@ -6,7 +6,6 @@
 
 use macroquad::prelude::*;
 
-use mandlebrot::ScreenDimensions;
 use mandlebrot::orbit_trap::*;
 use mandlebrot::layers::*;
 use mandlebrot::palettes::*;
@@ -35,7 +34,6 @@ async fn main() {
         0.005, 
         500.0, 
         (screen_width() as usize, screen_height() as usize),
-        ScreenDimensions::tuple_4k(),
         Layers::new(vec![
             Layer::new(LayerType::Colour, LayerRange::OutSet, 1.0, Palette::new_even(MIDNIGHT.to_vec(), MappingType::Repeated, 0.153173, 0.0)),
             Layer::new(LayerType::ColourOrbitTrap(OrbitTrapType::Point(OrbitTrapPoint::new((0.0, 0.0), OrbitTrapAnalysis::Angle))),

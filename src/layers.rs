@@ -1013,10 +1013,6 @@ impl Layer {
         self.range_constraints.is_none()
     }
 
-    pub fn change_palette_length(&mut self, change: f32) {
-        self.palette.change_palette_length(change);
-    }
-
     pub fn change_strength(&mut self, new: f32) -> bool {
         if self.strength == new { return false }
         self.strength = new;

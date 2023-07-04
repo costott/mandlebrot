@@ -133,10 +133,31 @@ const PALETTEEDITOR_TEXTBOX_VERT_PADDING: f32 = PALETTEEDITOR_TEXTBOX_HEIGHT/4.;
 const PALETTEEDITOR_COLOUR_SLIDER_START_X: f32 = MENU_SCREEN_PROPORTION/4.;
 /// proportion of the screen height for the height of the colour slider
 const PALETTEEDITOR_COLOUR_SLIDER_HEIGHT: f32 = 1./50.;
-/// proportion of the scree nheight for the bar in the palette editor
+/// proportion of the screen height for the bar in the palette editor
 const PALETTEEDITOR_BAR_HEIGHT: f32 = NAVBAR_BORDER_WIDTH_PROPORTION;
 /// proportion of the screen width for the width of the mapping type dropdown
 const PALETTEEDITOR_MAPPING_DROPDOWN_WIDTH: f32 = PALETTEEDITOR_TEXTBOX_WIDTH*2.2;
+
+/// proportion of the screen height for the vertical padding between sections of the menu
+const SCREENSHOT_VERT_PADDING: f32 = 1./50.;
+/// proportion of the screen height for the height of the bar in the screenshot menu
+const SCREENSHOT_BAR_HEIGHT: f32 = NAVBAR_BORDER_WIDTH_PROPORTION;
+/// proportion of the screen width for the width of the buttons on the screenshot menu
+const SCREENSHOT_BUTTON_WIDTH: f32 = MENU_SCREEN_PROPORTION/5.;
+/// proportion of the screen width for the border width of the screenshot buttons
+const SCREENSHOT_BUTTON_BORDER_WIDTH: f32 = SCREENSHOT_BUTTON_WIDTH/10.;
+
+/// proportion of the screen width for the width of the progress bar
+const PROGRESS_BAR_WIDTH: f32 = MENU_SCREEN_PROPORTION*0.8;
+/// proportion of the screen height for the height of the progress bar
+const PROGRESS_BAR_HEIGHT: f32 = 1./40.;
+/// proportion of the screen height for the vertical padding around the progress bar
+const PROGRESS_BAR_VERT_PADDING: f32 = 1./15.;
+const PROGRESS_BAR_COLOUR: Color = LAYERMANAGER_LAYER_TYPE_COLOUR;
+/// proportion of the screen width for the size of the progress bar text
+const PROGRESS_BAR_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/20.;
+/// proportion of the screen height for the padding between the progress bar and percent text
+const PROGRERSS_BAR_TEXT_PADDING: f32 = 1./75.;
 
 /// gives a texture which is a snippet of the gradient for the menu at the given place
 fn get_back_gradient(visualiser: &Visualiser, start_x: u16, width: u16, height: u16) -> Texture2D {
@@ -292,6 +313,7 @@ impl MenuState {
             0 => Some(Box::new(GeneralMenu::new(visualiser, font))),
             1 => Some(Box::new(LayersMenu::new(visualiser, font).await)),
             2 => Some(Box::new(LayerEditorMenu::new(visualiser).await)),
+            3 => Some(Box::new(ScreenshotMenu::new(&visualiser).await)),
             5 => Some(Box::new(PaletteEditor::new(&visualiser).await)),
             // placeholder
             _ => None
@@ -849,6 +871,8 @@ impl InputLabel {
     }
 }
 
+// TODO: generalise data input types so they all require similar parameters
+
 #[derive(Clone)]
 struct TextBox {
     label: Option<InputLabel>,
@@ -915,7 +939,7 @@ impl TextBox {
         if let Some(label) = self.label.clone() {
             draw_text_ex(
                 &label.text, 
-                screen_width()*TEXTBOX_LABEL_WIDTH_PADDING_PROPORTION, 
+                self.outer_rect.x - label.label_dims.width - screen_width()*TEXTBOX_LABEL_WIDTH_PADDING_PROPORTION, 
                 self.outer_rect.y + self.outer_rect.h/2. + label.label_dims.height/2., 
                 label.label_params,
             );
@@ -1650,6 +1674,72 @@ impl Carousel {
     }
 }
 
+struct ProgressBar {
+    rect: Rect,
+    gradient: Image,
+    label: Option<InputLabel>,
+    percent_cache: f32,
+    image_cache: Image
+}
+impl ProgressBar {
+    fn new(visualiser: &Visualiser, rect: Rect, label: Option<InputLabel>) -> ProgressBar {
+        let gradient = get_back_gradient(visualiser, rect.x as u16, rect.w as u16, rect.h as u16).get_texture_data();
+        ProgressBar {
+            rect,
+            gradient: gradient.clone(),
+            label,
+            percent_cache: 1., image_cache: gradient
+        }
+    }
+
+    fn draw_not_active(&self) {
+        let image = self.gradient.clone();
+        let bar = Texture2D::from_image(&image);
+
+        draw_circle(self.rect.x, self.rect.center().y, self.rect.h/2., image.get_pixel(0, 0));
+        draw_circle(self.rect.right(), self.rect.center().y, self.rect.h/2., image.get_pixel(image.width as u32-1, 0));
+        draw_texture(bar, self.rect.x, self.rect.y, WHITE);
+    }
+
+    fn draw(&mut self, current_percent: f32, active: bool, draw_label: bool) {
+        draw_rectangle(self.rect.x, self.rect.y, self.rect.w, self.rect.h, PROGRESS_BAR_COLOUR);
+        draw_circle(self.rect.x, self.rect.center().y, self.rect.h/2., PROGRESS_BAR_COLOUR);
+        draw_circle(self.rect.right(), self.rect.center().y, self.rect.h/2., PROGRESS_BAR_COLOUR);
+
+
+        let bar_rect = Rect::new(0., 0., self.rect.w * current_percent, self.rect.h);
+        if !active && bar_rect.w as usize > 0 {
+            self.draw_not_active();
+        } else if bar_rect.w as usize > 0 {
+            let image = match current_percent == self.percent_cache {
+                true => self.image_cache.clone(),
+                false => self.gradient.sub_image(bar_rect)
+            };
+            let bar = Texture2D::from_image(&image);
+            self.percent_cache = current_percent;
+            self.image_cache = image.clone();
+
+            draw_circle(self.rect.x, self.rect.center().y, self.rect.h/2., image.get_pixel(0, 0));
+            draw_circle(self.rect.x + bar_rect.w, self.rect.center().y, self.rect.h/2., image.get_pixel(image.width as u32-1, 0));
+            draw_texture(bar, self.rect.x, self.rect.y, WHITE);
+        }
+
+        if !draw_label { return }
+
+        if let Some(label) = self.label.clone() {
+            let text = format!["{}%", (current_percent*100.).trunc()];
+            let measure = measure_text(&text, Some(label.label_params.font), 
+                label.label_params.font_size, label.label_params.font_scale);
+            draw_text_ex(
+                &text,
+                self.rect.center().x - measure.width/2.,
+                self.rect.y - screen_height()*PROGRERSS_BAR_TEXT_PADDING,
+                label.label_params
+            );
+        }
+    }
+}
+
 trait MenuType {
     fn update(&mut self, visualiser: &mut Visualiser) -> MenuSignal;
     fn get_editing(&mut self) -> bool;
@@ -1694,7 +1784,8 @@ struct GeneralMenu {
     center_im: TextBox,
     magnification: TextBox,
     max_iterations: TextBox,
-    bailout: TextBox
+    bailout: TextBox,
+    progress_bar: ProgressBar
 }
 impl GeneralMenu {
     fn new(visualiser: &Visualiser, text_font: Font) -> GeneralMenu {
@@ -1735,7 +1826,17 @@ impl GeneralMenu {
             center_im: generator.get_text_box(1),
             magnification: generator.get_text_box(2),
             max_iterations: generator.get_text_box(3),
-            bailout: generator.get_text_box(4)
+            bailout: generator.get_text_box(4),
+            progress_bar: ProgressBar::new(
+                visualiser, 
+                Rect::new(
+                    screen_width()*(MENU_SCREEN_PROPORTION/2.-PROGRESS_BAR_WIDTH/2.),
+                    screen_height()*(1. - PROGRESS_BAR_VERT_PADDING),
+                    screen_width()*PROGRESS_BAR_WIDTH,
+                    screen_height()*PROGRESS_BAR_HEIGHT
+                ),
+                Some(InputLabel::new("0%", text_font, screen_width()*PROGRESS_BAR_FONT_PROPORTION, WHITE))
+            ),
         }
     }
 
@@ -1786,6 +1887,17 @@ impl MenuType for GeneralMenu {
                 visualiser.generate_image();
             }
         }
+
+        if visualiser.rendering {
+            self.progress_bar.draw(
+                visualiser.progress_tracker.lock().unwrap().clone() as f32 / 
+                    visualiser.current_dimensions.numpixels() as f32,
+                true, true
+            );
+        } else {
+            self.progress_bar.draw(1., false, true);
+        }
+        
 
         MenuSignal::None
     }
@@ -3595,5 +3707,284 @@ impl MenuType for PaletteEditor {
         self.old_palette = visualiser.layers.layers[index].palette.clone();
 
         self.load_colour_points(&visualiser.layers.layers[index].palette);
+    }
+}
+
+#[derive(Clone, PartialEq)]
+enum ScreenshotResolution {
+    R1080p,
+    R4k,
+    R8k,
+    Custom
+}
+impl DropDownType<ScreenshotResolution> for ScreenshotResolution {
+    fn get_variants() -> Vec<ScreenshotResolution> {
+        vec![
+            ScreenshotResolution::R1080p,
+            ScreenshotResolution::R4k,
+            ScreenshotResolution::R8k,
+            ScreenshotResolution::Custom
+        ]
+    }
+
+    fn get_string(&self) -> String {
+        String::from(match self {
+            ScreenshotResolution::R1080p => "1080p",
+            ScreenshotResolution::R4k => "4k",
+            ScreenshotResolution::R8k => "8k",
+            ScreenshotResolution::Custom => "Custom"
+        })
+    }
+}
+
+struct ScreenshotMenu {
+    name: TextBox,
+    resolution: DropDown<ScreenshotResolution>,
+    current_resolution: ScreenshotResolution,
+    width: TextBox,
+    height: TextBox,
+    bar_rect: Rect,
+    bar_grad: Texture2D,
+    export: Button,
+    cancel: Button,
+    progress_bar: ProgressBar,
+    exporting: bool,
+}
+impl ScreenshotMenu {
+    async fn new(visualiser: &Visualiser) -> ScreenshotMenu { 
+        let res_rect = ScreenshotMenu::get_input_rect(1);
+        let font =  load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+        let font_size = screen_width()*LAYEREDITOR_INPUT_FONT_PROPORTION;
+        let gradient = get_back_gradient(visualiser, res_rect.x as u16, res_rect.w as u16, res_rect.h as u16);
+        let label_colour = get_brightest_colour(gradient);
+
+        let bar_rect = Rect::new(0., 
+            res_rect.bottom() + screen_height()*(2.*LAYEREDITOR_INPUT_BOX_VERT_PADDING+SCREENSHOT_VERT_PADDING) + 2. * res_rect.h,
+            screen_width()*MENU_SCREEN_PROPORTION,
+            screen_height()*SCREENSHOT_BAR_HEIGHT
+        );
+
+        let button_size = screen_width()*SCREENSHOT_BUTTON_WIDTH;
+        let button_border = screen_width()*SCREENSHOT_BUTTON_BORDER_WIDTH;
+        let inner_button_size = button_size - 2. * button_border;
+        let button_x_padding = screen_width()*TEXTBOX_RIGHT_PADDING;
+
+        ScreenshotMenu {
+            name: ScreenshotMenu::get_textbox(0, "name", "[date]_[time]", visualiser).await,
+            resolution: DropDown::new(
+                visualiser, font_size as u16, 
+                (res_rect.x, res_rect.y), (res_rect.w, res_rect.h),
+                screen_height()*TEXTBOX_BORDER_PROPORTION,
+                Some(InputLabel::new("resolution", font, font_size, label_colour))
+            ).await,
+            current_resolution: ScreenshotResolution::R4k,
+            width: ScreenshotMenu::get_textbox(2, "width", "600", visualiser).await,
+            height: ScreenshotMenu::get_textbox(3, "height", "600", visualiser).await,
+            bar_rect,
+            bar_grad: get_back_gradient(visualiser, 0, bar_rect.w as u16, bar_rect.h as u16),
+            export: Button::new(
+                (button_size, button_size),
+                (button_x_padding, bar_rect.y + screen_height()*SCREENSHOT_VERT_PADDING),
+                vec![
+                    Box::new(ButtonImageElement::from_texture(
+                        get_back_gradient(visualiser, button_x_padding as u16, button_size as u16, button_size as u16), 
+                        1., 
+                        (0., 0.), 
+                        0
+                    )),
+                    Box::new(ButtonColourElement::new(
+                        BLACK,
+                        (inner_button_size, inner_button_size),
+                        (button_border, button_border),
+                        1
+                    )),
+                    Box::new(ButtonImageElement::from_image(
+                        load_image("assets/export.png").await.unwrap(), 
+                        1., 
+                        DrawTextureParams { dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default() }, 
+                        (button_border, button_border), 
+                        2
+                    ))
+                ],
+                vec![Box::new(ButtonColourElement::new(
+                    HOVER_WHITE_OVERLAY,
+                    (button_size, button_size),
+                    (0., 0.),
+                    3
+                ))],
+                vec![Box::new(ButtonColourElement::new(
+                    HOVER_BLACK_OVERLAY,
+                    (button_size, button_size),
+                    (0., 0.),
+                    4
+                ))]
+            ),
+            cancel: Button::new(
+                (button_size, button_size),
+                (screen_width()*MENU_SCREEN_PROPORTION - button_size - button_x_padding, bar_rect.y + screen_height()*SCREENSHOT_VERT_PADDING),
+                vec![
+                    Box::new(ButtonImageElement::from_texture(
+                        get_back_gradient(visualiser, button_x_padding as u16, button_size as u16, button_size as u16), 
+                        1., 
+                        (0., 0.), 
+                        0
+                    )),
+                    Box::new(ButtonColourElement::new(
+                        BLACK,
+                        (inner_button_size, inner_button_size),
+                        (button_border, button_border),
+                        1
+                    )),
+                    Box::new(ButtonImageElement::from_image(
+                        load_image("assets/stop.png").await.unwrap(), 
+                        1., 
+                        DrawTextureParams { dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default() }, 
+                        (button_border, button_border), 
+                        2
+                    ))
+                ],
+                vec![Box::new(ButtonColourElement::new(
+                    HOVER_WHITE_OVERLAY,
+                    (button_size, button_size),
+                    (0., 0.),
+                    3
+                ))],
+                vec![Box::new(ButtonColourElement::new(
+                    HOVER_BLACK_OVERLAY,
+                    (button_size, button_size),
+                    (0., 0.),
+                    4
+                ))]
+            ),
+            progress_bar: ProgressBar::new(
+                visualiser, 
+                Rect::new(
+                    screen_width()*(MENU_SCREEN_PROPORTION/2.-PROGRESS_BAR_WIDTH/2.),
+                    screen_height()*(1. - PROGRESS_BAR_VERT_PADDING),
+                    screen_width()*PROGRESS_BAR_WIDTH,
+                    screen_height()*PROGRESS_BAR_HEIGHT
+                ),
+                Some(InputLabel::new("0%", font, screen_width()*PROGRESS_BAR_FONT_PROPORTION, WHITE))
+            ),
+            exporting: false
+        }
+    }
+
+    fn get_input_rect(box_i: usize) -> Rect {
+        let start_x = screen_width()*LAYEREDITOR_TEXTBOX_START_X;
+
+        let width =  screen_width()*(MENU_SCREEN_PROPORTION-TEXTBOX_RIGHT_PADDING) - start_x;
+        let height = screen_height()*TEXTBOX_HEIGHT_PROPORTION;
+
+        let top_y = screen_height()*(NAVBAR_HEIGHT_PROPORTION+2.*STATE_TEXT_PADDING_PROPORTION+SCREENSHOT_VERT_PADDING) + 
+                         screen_width()*STATE_TEXT_FONT_PROPORTION;
+        let start_y = top_y + box_i as f32 * (height + screen_height()*LAYEREDITOR_INPUT_BOX_VERT_PADDING);
+
+        Rect::new(start_x, start_y, width, height)
+    }
+    
+    async fn get_textbox(textbox_i: usize, name: &str, default_data: &str, visualiser: &Visualiser) -> TextBox {
+        let font =  load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+        let font_size = screen_width()*LAYEREDITOR_INPUT_FONT_PROPORTION;
+
+        let rect = ScreenshotMenu::get_input_rect(textbox_i);
+
+        let gradient = get_back_gradient(visualiser, rect.x as u16, rect.w as u16, rect.h as u16);
+        let label_colour = get_brightest_colour(gradient);
+
+        TextBox::new(
+            Some(InputLabel::new(name, font, font_size, label_colour)),
+            String::from(default_data),
+            rect.w, rect.h, rect.x as u16, rect.y, gradient, 
+            TextParams { font, font_size: font_size as u16, color: WHITE, ..Default::default() }
+        )       
+    }
+
+    fn update_top_menu(&mut self) {
+        if let Some(new) = self.name.update(self.name.data.clone()) {
+            self.name.data = new;
+        }
+        
+        if self.current_resolution == ScreenshotResolution::Custom {
+            if !self.resolution.open {
+                if let Some(Ok(new)) = self.width.update(self.width.data.clone()).and_then(|d| Some(d.parse::<usize>())) {
+                    if new > 0 {self.width.data = new.to_string();}
+                }
+                if let Some(Ok(new)) = self.height.update(self.height.data.clone()).and_then(|d| Some(d.parse::<usize>())) {
+                    if new > 0 {self.height.data = new.to_string();}
+                }
+            } else {
+                self.width.draw();
+                self.height.draw();
+            }
+        } 
+
+        if let Some(new) = self.resolution.update(&self.current_resolution) {
+            self.current_resolution = new;
+        }
+    }
+
+    fn draw_top_menu(&mut self) {
+        self.name.draw();
+        self.resolution.draw(&self.current_resolution);
+        
+        if self.current_resolution == ScreenshotResolution::Custom {
+            self.width.draw();
+            self.height.draw();
+        }
+    }
+}
+impl MenuType for ScreenshotMenu {
+    fn update(&mut self, visualiser: &mut Visualiser) -> MenuSignal {
+        draw_texture(self.bar_grad, self.bar_rect.x, self.bar_rect.y, WHITE);
+
+        if !self.exporting {
+            self.update_top_menu();
+
+            self.progress_bar.draw(0., false, false);
+
+            self.export.update();
+            if self.export.clicked {
+                let dimensions = ScreenDimensions::from_tuple(match self.current_resolution {
+                    ScreenshotResolution::R1080p => ScreenDimensions::tuple_1080p(),
+                    ScreenshotResolution::R4k => ScreenDimensions::tuple_4k(),
+                    ScreenshotResolution::R8k => ScreenDimensions::tuple_8k(),
+                    ScreenshotResolution::Custom => (self.width.data.parse().unwrap(), self.height.data.parse().unwrap())
+                });
+
+                visualiser.start_export(&self.name.data, dimensions);
+
+                self.exporting = true;
+            }
+        } else {
+            self.draw_top_menu();
+
+            self.progress_bar.draw(
+                visualiser.exporter.progress_tracker.lock().unwrap().clone() as f32 / 
+                    visualiser.exporter.dims.numpixels() as f32,
+                true, true
+            );
+
+            self.export.holding = true;
+            self.export.draw();
+            self.cancel.update();
+            if self.cancel.clicked {
+                visualiser.cancel_current_render();
+                visualiser.exporter.cancel_export();
+                self.exporting = false;
+            }
+            if !visualiser.exporter.exporting {
+                self.exporting = false;
+            }
+        }
+
+        MenuSignal::None
+    }
+
+    fn get_editing(&mut self) -> bool {
+        for textbox in vec![&self.name, &self.width, &self.height].iter() {
+            if textbox.selected { return true}
+        }
+        false
     }
 }
