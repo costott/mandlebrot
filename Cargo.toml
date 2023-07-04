@@ -8,6 +8,9 @@ edition = "2021"
 [profile.dev]
 opt-level = 3
 
+[profile.release]
+debug = true
+
 [dependencies]
 macroquad = "0.3.26"
 rand = "0.8.5"

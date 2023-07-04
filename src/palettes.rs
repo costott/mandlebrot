@@ -10,9 +10,9 @@ use crate::{menu::DropDownType, interpolate_colour, escape_time};
 use std::collections::HashSet;
 
 /// the number of iteration values in the palette
-/// for a 100% pallete length for the repeated mapping type 
+/// for a 100% palette length for the repeated mapping type 
 /// i.e. 500 => 500 iterations = 100% palette length
-/// in other words, what the pallete length represents a fraction of
+/// in other words, what the palette length represents a fraction of
 const PALETTE_DEPTH: usize = 500;
 /// the minimum distance between percentages for a new point 
 /// to be able to be added
@@ -152,12 +152,6 @@ impl Palette {
         if self.offset == new { return false }
         self.offset = new;
         true
-    }
-
-    /// add/delete from the palette length by change
-    pub fn change_palette_length(&mut self, change: f32) {
-        self.palette_length += change;
-        self.palette_length = self.palette_length.clamp(0., 1.);
     }
 
     /// attempts to change a point's percentage
@@ -329,7 +323,7 @@ impl Palette {
     }
 }
 
-#[allow(unused)]
+#[allow(unused_variables)]
 
 //pub const COLOUR_MAP: [Color; 3] = [
 //     DARKBLUE,
