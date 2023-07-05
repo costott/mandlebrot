@@ -963,6 +963,7 @@ impl Visualiser {
             self.rendering = false;
         } 
         
+        Texture2D::delete(&self.texture);
         self.texture = Texture2D::from_image(&self.image.lock().unwrap());
     }
 
@@ -1022,6 +1023,7 @@ impl Visualiser {
     /// draw a generated image to the screen
     pub fn draw(&mut self) {
         if self.rendering {
+            Texture2D::delete(&self.texture);
             self.texture = Texture2D::from_image(&self.image.lock().unwrap());
 
             if self.thread_pool.active_count() == 0 && self.thread_pool.queued_count() == 0 {
@@ -1411,8 +1413,10 @@ impl Buhddabrot {
                     main_img.set_pixel(i as u32, j as u32, c);
                 }
             }
+            Texture2D::delete(&self.texture);
             self.texture = Texture2D::from_image(&main_img);
         } else {
+            Texture2D::delete(&self.texture);
             self.texture = Texture2D::from_image(&self.generate_channel(
                 self.max_iterations as u32,
                 Color::new(1., 1., 1., 1.)
