@@ -126,7 +126,7 @@ impl Palette {
             colour_map: vec![(BLACK, 0.0).into(), (WHITE, 1.0).into()],
             sorted_colour_map: vec![(BLACK, 0.0).into(), (WHITE, 1.0).into()],
             mapping_type: MappingType::Repeated,
-            palette_length: 100.0,
+            palette_length: 1.0,
             offset: 0.0,
             palette_cache: Vec::new()
         }

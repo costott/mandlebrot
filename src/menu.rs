@@ -247,7 +247,8 @@ enum MenuState {
     Screenshot,
     Video,
     PaletteEditor,
-    UpdateGradient
+    /// integer specifies the index of the next menu
+    UpdateGradient(usize)
 }
 impl MenuState {
     fn map_button_states(button_i: isize) -> MenuState {
@@ -270,7 +271,7 @@ impl MenuState {
             MenuState::Video => 4,
             MenuState::PaletteEditor => 5,
             MenuState::Closed => 5,
-            MenuState::UpdateGradient => 6
+            MenuState::UpdateGradient(_) => 6
         }
     }
 
@@ -351,9 +352,15 @@ impl MenuState {
             },
             MenuSignal::RefreshGradients => {
                 for menu in menus {
-                    *menu = None;
+                    match menu {
+                        Some(m) => m.refresh_gradients(visualiser),
+                        None => {}
+                    }
                 }
-                *self = MenuState::UpdateGradient;
+                *self = match self {
+                    MenuState::PaletteEditor => MenuState::UpdateGradient(0),
+                    _ => MenuState::UpdateGradient(self.map_state_indexes())
+                }
             }
         }
     }
@@ -423,7 +430,7 @@ impl Menu {
                 vec![
                     Box::new(ButtonColourElement::new(PINK, (20., 20.), (0., 0.), 0)),
                     Box::new(ButtonColourElement::new(BLACK, (15., 15.), (2.5, 2.5), 3)),
-                    Box::new(ButtonImageElement::from_image(
+                    Box::new(ButtonImageElement::new(
                         load_image("assets/triangle.png").await.unwrap(), 1.,
                         DrawTextureParams { dest_size: Some(Vec2::new(15., 15.)), flip_x: true, ..Default::default() },
                         (2.5, 2.5), 4
@@ -438,7 +445,7 @@ impl Menu {
                 vec![
                     Box::new(ButtonColourElement::new(PINK, (20., 20.), (0., 0.), 0)),
                     Box::new(ButtonColourElement::new(BLACK, (15., 15.), (2.5, 2.5), 3)),
-                    Box::new(ButtonImageElement::from_image(
+                    Box::new(ButtonImageElement::new(
                         load_image("assets/triangle.png").await.unwrap(), 1.,
                         DrawTextureParams { dest_size: Some(Vec2::new(15., 15.)), flip_x: false, ..Default::default() },
                         (2.5, 2.5), 4
@@ -463,6 +470,7 @@ impl Menu {
     }
 
     fn update_gradient(&mut self, visualiser: &Visualiser) {
+        Texture2D::delete(&self.gradient);
         self.gradient = get_back_gradient(
             &visualiser, 
             0, 
@@ -487,10 +495,12 @@ impl Menu {
         }
 
         self.state.update_state(&mut self.menus, visualiser, self.text_font).await;
-        if self.state == MenuState::UpdateGradient {
-            self.update_gradient(visualiser);
-            self.state = MenuState::General;
-            return;
+        match self.state {
+            MenuState::UpdateGradient(next_i) => {
+                self.update_gradient(visualiser);
+                self.state = MenuState::map_button_states(next_i as isize);
+            },
+            _ => {}
         }
 
         self.state = self.navbar.update(self.state, self.state_font, self.text_colour);
@@ -524,6 +534,7 @@ trait ButtonElement: ButtonElementClone {
     fn draw(&self, button_rect: &Rect);
     /// lower draw order => drawn first
     fn get_draw_order(&self) -> usize;
+    fn refresh_gradient(&mut self, _visualiser: &Visualiser) {}
 }
 
 trait ButtonElementClone {
@@ -548,22 +559,18 @@ impl Clone for Box<dyn ButtonElement> {
 #[derive(Clone)]
 struct ButtonImageElement {
     image: Texture2D,
-    params: Option<DrawTextureParams>,
+    params: DrawTextureParams,
     alpha_colour: Color,
     /// offset from the topleft of the button
     offset: (f32, f32),
     draw_order: usize
 }
 impl ButtonImageElement {
-    fn from_texture(image: Texture2D, alpha: f32, offset: (f32, f32), draw_order: usize) -> ButtonImageElement {
-        ButtonImageElement { image, alpha_colour: Color::new(1., 1., 1., alpha), params: None, offset, draw_order }
-    }
-
-    fn from_image(image: Image, alpha: f32, params: DrawTextureParams, offset: (f32, f32), draw_order: usize) -> ButtonImageElement {
+    fn new(image: Image, alpha: f32, params: DrawTextureParams, offset: (f32, f32), draw_order: usize) -> ButtonImageElement {
         ButtonImageElement { 
             image: Texture2D::from_image(&image), 
             alpha_colour: Color::new(1., 1., 1., alpha),
-            params: Some(params), 
+            params: params, 
             offset, 
             draw_order
         }
@@ -571,25 +578,71 @@ impl ButtonImageElement {
 }
 impl ButtonElement for ButtonImageElement {
     fn draw(&self, button_rect: &Rect) {
-        match &self.params {
-            Some(p) => draw_texture_ex(
-                self.image, 
-                button_rect.x+self.offset.0, 
-                button_rect.y+self.offset.1, 
-                self.alpha_colour, 
-                p.clone()
-            ),
-            None => draw_texture(
-                self.image, 
-                button_rect.x+self.offset.0, 
-                button_rect.y+self.offset.1, 
-                self.alpha_colour
-            )
-        }
+        draw_texture_ex(
+            self.image, 
+            button_rect.x+self.offset.0, 
+            button_rect.y+self.offset.1, 
+            self.alpha_colour, 
+            self.params.clone()
+        );
     }
 
     fn get_draw_order(&self) -> usize {
         self.draw_order
+    }
+}
+
+#[derive(Clone)]
+struct ButtonGradientElement {
+    layer_i: Option<usize>,
+    gradient: Texture2D,
+    offset: (f32, f32),
+    alpha_colour: Color,
+    screen_rect: Rect,
+    draw_order: usize
+}
+impl ButtonGradientElement{
+    /// if a layer_i is provided, the gradient is the full palette
+    /// if not, the gradient is the back gradient
+    fn new(
+        visualiser: &Visualiser,
+        layer_i: Option<usize>,
+        button_topleft: (f32, f32), 
+        size: (f32, f32), 
+        offset: (f32, f32), 
+        alpha_colour: Color, 
+        draw_order: usize
+    ) -> ButtonGradientElement {
+        let screen_rect = Rect::new(button_topleft.0+offset.0, button_topleft.1+offset.1, size.0, size.1);
+        ButtonGradientElement { 
+            gradient: match &layer_i {
+                None => get_back_gradient(visualiser, screen_rect.x as u16, screen_rect.w as u16, screen_rect.h as u16),
+                Some(i) => visualiser.layers.layers[*i].palette.get_full_gradient(size.0, size.1)
+            },
+            layer_i,
+            offset, 
+            alpha_colour, 
+            screen_rect, 
+            draw_order
+        }
+    }
+}
+impl ButtonElement for ButtonGradientElement {
+    fn draw(&self, button_rect: &Rect) {
+        draw_texture(self.gradient, button_rect.x+self.offset.0, 
+                     button_rect.y+self.offset.1, self.alpha_colour);
+    }
+
+    fn get_draw_order(&self) -> usize {
+        self.draw_order
+    }
+
+    fn refresh_gradient(&mut self, visualiser: &Visualiser) {
+        Texture2D::delete(&self.gradient);
+        self.gradient = match &self.layer_i {
+            None => get_back_gradient(visualiser, self.screen_rect.x as u16, self.screen_rect.w as u16, self.screen_rect.h as u16),
+            Some(i) => visualiser.layers.layers[*i].palette.get_full_gradient(self.screen_rect.w, self.screen_rect.h)
+        };
     }
 }
 
@@ -687,6 +740,15 @@ impl Button {
 
     fn translate(&mut self, translate: (f32, f32)) {
         translate_rect(&mut self.rect, translate);
+    }
+
+    fn refresh_gradient(&mut self, visualiser: &Visualiser) {
+        let all_elements: Vec<&mut Box<dyn ButtonElement>> = self.back_elements.iter_mut()
+            .chain(self.hover_elements.iter_mut())
+            .chain(self.hold_elements.iter_mut()).collect();
+        for element in all_elements {
+            element.refresh_gradient(visualiser);
+        }
     }
 }
 
@@ -891,12 +953,12 @@ struct TextBox {
 }
 impl TextBox {
     fn new(
+        visualiser: &Visualiser,
         label: Option<InputLabel>,
         default_data: String,
         width: f32, 
         height: f32,
         start_x: u16, start_y: f32, 
-        gradient: Texture2D,
         content_params: TextParams
     ) -> TextBox {
         let outer_rect = Rect::new(start_x as f32, start_y, width, height);
@@ -905,7 +967,7 @@ impl TextBox {
             label, 
             data: default_data.to_owned(),
             data_info: DataInfo::new(&default_data, content_params),
-            border_back: gradient,
+            border_back: get_back_gradient(visualiser, outer_rect.x as u16, outer_rect.w as u16, outer_rect.h as u16),
             outer_rect,
             inner_rect: inflate_rect(&outer_rect, -border_width),
             content_params,
@@ -936,7 +998,7 @@ impl TextBox {
     }
 
     fn draw(&self) {
-        if let Some(label) = self.label.clone() {
+        if let Some(label) = &self.label {
             draw_text_ex(
                 &label.text, 
                 self.outer_rect.x - label.label_dims.width - screen_width()*TEXTBOX_LABEL_WIDTH_PADDING_PROPORTION, 
@@ -1091,6 +1153,11 @@ impl TextBox {
         translate_rect(&mut self.outer_rect, translate);
         translate_rect(&mut self.inner_rect, translate);
     }
+
+    fn refresh_gradient(&mut self, visualiser: &Visualiser) {
+        Texture2D::delete(&self.border_back);
+        self.border_back = get_back_gradient(visualiser, self.outer_rect.x as u16, self.outer_rect.w as u16, self.outer_rect.h as u16)
+    }
 }
 
 trait SliderBar: SliderBarClone {
@@ -1155,6 +1222,8 @@ impl SliderBar for GradientSliderBar {
     }
 
     fn make_gradient(&mut self, rect: Rect, left_colour: Color, right_colour: Color) {
+        Texture2D::delete(&self.gradient_texture);
+
         let mut image = Image::gen_image_color(rect.w as u16, rect.h as u16, BLACK);
         for i in 0..rect.w as u32 {
             let fraction = i as f32 / rect.w;
@@ -1263,7 +1332,7 @@ impl Slider {
 
     fn draw(&self) {
         // draw label
-        if let Some(label) = self.label.clone() {
+        if let Some(label) = &self.label {
             draw_text_ex(
                 &label.text, 
                 self.inflated_rect.x - label.label_dims.width * 1.1 - self.rect.h/2., 
@@ -1289,7 +1358,7 @@ impl Slider {
         }
 
         // draw percentage label
-        if let Some(percentage_params) = self.percentage_label_params.clone() {
+        if let Some(percentage_params) = &self.percentage_label_params {
             let percentage_string = (self.percentage * self.conversion).round().to_string();
             let percentage_string = format!("{}%", &percentage_string);
             let measure = measure_text(
@@ -1301,11 +1370,11 @@ impl Slider {
                 &percentage_string,
                 self.rect.right() + measure.width * 0.25 + self.rect.h/2.,
                 self.rect.bottom() + measure.height/4.,
-                percentage_params
+                *percentage_params
             );
         }
         // draw text box
-        if let Some(textbox) = self.percentage_text_box.clone() {
+        if let Some(textbox) = &self.percentage_text_box {
             textbox.draw();
         }
     }
@@ -1313,6 +1382,12 @@ impl Slider {
     fn translate(&mut self, translate: (f32, f32)) {
         translate_rect(&mut self.rect, translate);
         translate_rect(&mut self.inflated_rect, translate);
+    }
+
+    fn refresh_gradient(&mut self, visualiser: &Visualiser) {
+        if let Some(tb) = &mut self.percentage_text_box {
+            tb.refresh_gradient(visualiser);
+        }
     }
 }
 
@@ -1474,7 +1549,7 @@ impl<T: DropDownType<T> + std::cmp::PartialEq + Clone> DropDown<T> {
                 self.closed_rect.w, self.closed_rect.h, HOVER_WHITE_OVERLAY);
         }
 
-        if let Some(label) = self.label.clone() {
+        if let Some(label) = &self.label {
             draw_text_ex(
                 &label.text, 
                 self.closed_rect.x - label.label_dims.width - screen_width()*TEXTBOX_LABEL_WIDTH_PADDING_PROPORTION, 
@@ -1545,6 +1620,16 @@ impl<T: DropDownType<T> + std::cmp::PartialEq + Clone> DropDown<T> {
             self.closed_rect.w,
             extra_height + self.border_size
         );
+    }
+
+    fn refresh_gradient(&mut self, visualiser: &Visualiser) {
+        Texture2D::delete(&self.closed_back);
+        Texture2D::delete(&self.open_back);
+
+        self.closed_back = get_back_gradient(visualiser, self.closed_rect.x as u16, 
+            self.closed_rect.w as u16, self.closed_rect.h as u16);
+        self.open_back = get_back_gradient(visualiser, self.open_rect.x as u16, 
+            self.open_rect.w as u16, self.open_rect.h as u16);
     }
 }
 
@@ -1672,12 +1757,18 @@ impl Carousel {
             );
         }
     }
+
+    fn refresh_gradient(&mut self, visualiser: &Visualiser) {
+        Texture2D::delete(&self.back);
+        self.back = get_back_gradient(visualiser, self.rect.x as u16, self.rect.w as u16, self.rect.h as u16);
+    }
 }
 
 struct ProgressBar {
     rect: Rect,
     gradient: Image,
     label: Option<InputLabel>,
+    bar: Texture2D,
     percent_cache: f32,
     image_cache: Image
 }
@@ -1688,17 +1779,19 @@ impl ProgressBar {
             rect,
             gradient: gradient.clone(),
             label,
+            bar: Texture2D::empty(),
             percent_cache: 1., image_cache: gradient
         }
     }
 
-    fn draw_not_active(&self) {
+    fn draw_not_active(&mut self) {
         let image = self.gradient.clone();
-        let bar = Texture2D::from_image(&image);
+        Texture2D::delete(&self.bar);
+        self.bar = Texture2D::from_image(&image);
 
         draw_circle(self.rect.x, self.rect.center().y, self.rect.h/2., image.get_pixel(0, 0));
         draw_circle(self.rect.right(), self.rect.center().y, self.rect.h/2., image.get_pixel(image.width as u32-1, 0));
-        draw_texture(bar, self.rect.x, self.rect.y, WHITE);
+        draw_texture(self.bar, self.rect.x, self.rect.y, WHITE);
     }
 
     fn draw(&mut self, current_percent: f32, active: bool, draw_label: bool) {
@@ -1715,18 +1808,19 @@ impl ProgressBar {
                 true => self.image_cache.clone(),
                 false => self.gradient.sub_image(bar_rect)
             };
-            let bar = Texture2D::from_image(&image);
+            Texture2D::delete(&self.bar);
+            self.bar = Texture2D::from_image(&image);
             self.percent_cache = current_percent;
             self.image_cache = image.clone();
 
             draw_circle(self.rect.x, self.rect.center().y, self.rect.h/2., image.get_pixel(0, 0));
             draw_circle(self.rect.x + bar_rect.w, self.rect.center().y, self.rect.h/2., image.get_pixel(image.width as u32-1, 0));
-            draw_texture(bar, self.rect.x, self.rect.y, WHITE);
+            draw_texture(self.bar, self.rect.x, self.rect.y, WHITE);
         }
 
         if !draw_label { return }
 
-        if let Some(label) = self.label.clone() {
+        if let Some(label) = &self.label {
             let text = format!["{}%", (current_percent*100.).trunc()];
             let measure = measure_text(&text, Some(label.label_params.font), 
                 label.label_params.font_size, label.label_params.font_scale);
@@ -1738,12 +1832,21 @@ impl ProgressBar {
             );
         }
     }
+
+    fn refresh_gradient(&mut self, visualiser: &Visualiser) {
+        self.gradient = get_back_gradient(visualiser, self.rect.x as u16, 
+            self.rect.w as u16, self.rect.h as u16).get_texture_data();
+        // make sure it won't use the cache
+        self.image_cache = Image::empty();
+        self.percent_cache = -1.;
+    }
 }
 
 trait MenuType {
     fn update(&mut self, visualiser: &mut Visualiser) -> MenuSignal;
     fn get_editing(&mut self) -> bool;
     fn open_layer_to_edit(&mut self, _index: usize, _visualiser: &Visualiser) {}
+    fn refresh_gradients(&mut self, visualiser: &Visualiser);
 }
 
 /// generates the text boxes for the general menu
@@ -1757,12 +1860,12 @@ struct GeneralMenuTextBoxGenerator {
     start_x: u16,
     start_y: f32,
     y_change: f32,
-    gradient: Texture2D,
     content_params: TextParams
 }
 impl GeneralMenuTextBoxGenerator {
-    fn get_text_box(&self, i: usize) -> TextBox {
+    fn get_text_box(&self, i: usize, visualiser: &Visualiser) -> TextBox {
         TextBox::new(
+            visualiser,
             Some(InputLabel { 
                 text: self.labels[i].to_owned(), 
                 label_dims: self.label_dims[i], 
@@ -1773,7 +1876,6 @@ impl GeneralMenuTextBoxGenerator {
             self.height,
             self.start_x,
             self.start_y + i as f32*self.y_change,
-            self.gradient,
             self.content_params
         )
     }
@@ -1813,20 +1915,21 @@ impl GeneralMenu {
         
         let gradient = get_back_gradient(visualiser, start_x, width as u16, height as u16);
         let label_params = TextParams {font: text_font, font_size, color: get_brightest_colour(gradient), ..Default::default()};
+        Texture2D::delete(&gradient);
         let content_params = TextParams {font: text_font, font_size, color: WHITE, ..Default::default()};
 
         let generator = GeneralMenuTextBoxGenerator {
             labels, label_dims, label_params, default_data: [-0.5, 0., 1.0, 500., 200.], 
-            start_x, width, height, start_y, y_change, gradient, content_params
+            start_x, width, height, start_y, y_change, content_params
         };
 
 
         GeneralMenu {
-            center_re: generator.get_text_box(0),
-            center_im: generator.get_text_box(1),
-            magnification: generator.get_text_box(2),
-            max_iterations: generator.get_text_box(3),
-            bailout: generator.get_text_box(4),
+            center_re: generator.get_text_box(0, visualiser),
+            center_im: generator.get_text_box(1, visualiser),
+            magnification: generator.get_text_box(2, visualiser),
+            max_iterations: generator.get_text_box(3, visualiser),
+            bailout: generator.get_text_box(4, visualiser),
             progress_bar: ProgressBar::new(
                 visualiser, 
                 Rect::new(
@@ -1907,6 +2010,13 @@ impl MenuType for GeneralMenu {
             if text_box.selected { return true }
         }
         false
+    }
+
+    fn refresh_gradients(&mut self, visualiser: &Visualiser) {
+        for text_box in self.all_text_boxes().iter_mut() {
+            text_box.refresh_gradient(visualiser);
+        }
+        self.progress_bar.refresh_gradient(visualiser);
     }
 }
 
@@ -2030,13 +2140,16 @@ impl LayerManager {
             palette_button: Button::new(
                 (palette_size, palette_size),
                 (screen_width()*LAYERMANAGER_INNER_LEFT_PADDING, screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
-                vec![Box::new(ButtonImageElement::from_texture(
-                    visualiser.layers.layers[layer_num].palette.get_full_gradient(palette_size, palette_size),
-                    1., (0., 0.), 0
+                vec![Box::new(ButtonGradientElement::new(
+                    visualiser,
+                    Some(layer_num),
+                    (screen_width()*LAYERMANAGER_INNER_LEFT_PADDING, screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
+                    (palette_size, palette_size),
+                    (0., 0.), WHITE, 0
                 ))],
                 vec![
                     Box::new(ButtonColourElement::new(Color::new(0., 0., 0., 0.5), (palette_size, palette_size), (0., 0.), 1)),
-                    Box::new(ButtonImageElement::from_image(
+                    Box::new(ButtonImageElement::new(
                         load_image("assets/wrench.png").await.unwrap(), 0.7, 
                         DrawTextureParams { dest_size: Some(Vec2::new(palette_size, palette_size)), ..Default::default() },
                         (0., 0.), 2
@@ -2045,18 +2158,13 @@ impl LayerManager {
                 vec![]
             ),
             name: TextBox::new(
+                visualiser,
                 None, 
                 layer.name.clone(),
                 name_textbox_width,
                 name_textbox_height,
                 name_textbox_start_x as u16,
                 screen_height()*LAYERMANAGER_INNER_TOP_PADDING,
-                get_back_gradient(
-                    visualiser,
-                    name_textbox_start_x as u16,
-                    name_textbox_width as u16,
-                    name_textbox_height as u16
-                ),
                 name_text_params
             ), 
             layer_type_text_params,
@@ -2064,15 +2172,18 @@ impl LayerManager {
                 (palette_size, palette_size),
                 (edit_button_x, screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
                 vec![
-                    Box::new(ButtonImageElement::from_texture(
-                        get_back_gradient(visualiser, edit_button_x as u16, palette_size as u16, palette_size as u16),
-                        1., (0., 0.), 0
+                    Box::new(ButtonGradientElement::new(
+                        visualiser,
+                        None,
+                        (edit_button_x, screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
+                        (palette_size, palette_size),
+                        (0., 0.), WHITE, 0
                     )),
                     Box::new(ButtonColourElement::new(BLACK, 
                         (palette_size-2.*edit_button_border, palette_size-2.*edit_button_border), (edit_button_border, edit_button_border),
                         1
                     )),
-                    Box::new(ButtonImageElement::from_image(
+                    Box::new(ButtonImageElement::new(
                         load_image("assets/wrench.png").await.unwrap(), 0.7, 
                         DrawTextureParams { dest_size: Some(Vec2::new(palette_size, palette_size)), ..Default::default() },
                         (0., 0.), 2
@@ -2096,15 +2207,18 @@ impl LayerManager {
                 (delete_button_size, delete_button_size),
                 (delete_button_x_offset, screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
                 vec![
-                    Box::new(ButtonImageElement::from_texture(
-                        get_back_gradient(visualiser, (inner_rect.x+delete_button_x_offset) as u16, delete_button_size as u16, delete_button_size as u16),
-                        1., (0., 0.), 0
+                    Box::new(ButtonGradientElement::new(
+                        visualiser,
+                        None,
+                        (delete_button_x_offset, screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
+                        (delete_button_size, delete_button_size),
+                        (0., 0.), WHITE, 0
                     )),
                     Box::new(ButtonColourElement::new(
                         BLACK, (delete_button_size-2.*edit_button_border, delete_button_size-2.*edit_button_border),
                         (edit_button_border, edit_button_border), 1
                     )),
-                    Box::new(ButtonImageElement::from_image(
+                    Box::new(ButtonImageElement::new(
                         load_image("assets/cross.png").await.unwrap(), 1.,
                         DrawTextureParams { dest_size: Some((delete_button_size-2.*edit_button_border, delete_button_size-2.*edit_button_border).into()),
                             ..Default::default() },
@@ -2133,30 +2247,23 @@ impl LayerManager {
 
     /// creates a new LayerManager using another one to avoid being async
     fn new_copy(visualiser: &Visualiser, copy: &LayerManager, scroll: f32) -> LayerManager {
-        let mut copy = copy.clone();
-        copy.undo_translation();
-
         let mut palette_button = copy.palette_button.clone();
-        let palette_size = screen_height()*LAYERMANAGER_PALETTE_HEIGHT_PROPORTION;
-        palette_button.back_elements[0] = Box::new(ButtonImageElement::from_texture(
-            visualiser.layers.layers[visualiser.layers.layers.len()-1].palette.get_full_gradient(palette_size, palette_size),
-            1., (0., 0.), 0
+        // this still leaks a small amount of memory as you can't drop the gradient in 
+        // ButtonGradientElement, but can be fixed once async trait functions are released
+        palette_button.back_elements[0] = Box::new(ButtonGradientElement::new(
+            visualiser,
+            Some(visualiser.layers.layers.len()-1),
+            (palette_button.rect.x, palette_button.rect.y),
+            (palette_button.rect.w, palette_button.rect.h),
+            (0., 0.), WHITE, 0 
         ));
 
         let mut strength_slider = copy.strength_slider.clone();
         strength_slider.percentage = 0.;
 
-        let outer_rect = Rect::new(
-            screen_width()*LAYERMANAGER_LEFT_PADDING,
-            screen_height()*(1.0-LAYERMANAGER_BOTTOM_PADDING-LAYERMANAGER_HEIGHT) - (visualiser.layers.layers.len()-1) as f32 * 
-                (screen_height()*(LAYERMANAGER_HEIGHT+LAYERMANAGER_TOP_PADDING)) + scroll,
-            screen_width()*(MENU_SCREEN_PROPORTION-LAYERMANAGER_LEFT_PADDING-LAYERMANAGER_RIGHT_PADDING),
-            screen_height()*LAYERMANAGER_HEIGHT
-        );
-
-        LayerManager { 
-            border_back: copy.border_back, 
-            outer_rect,
+        let mut manager = LayerManager { 
+            border_back: get_back_gradient(visualiser, copy.outer_rect.x as u16, copy.outer_rect.w as u16, copy.outer_rect.h as u16), 
+            outer_rect: copy.outer_rect,
             inner_rect: copy.inner_rect, 
             palette_button, 
             name: copy.name.clone(), 
@@ -2170,7 +2277,19 @@ impl LayerManager {
             hovering: false, 
             dragging: false, 
             released: false 
-        }
+        };
+
+        manager.undo_translation();
+
+        let outer_rect = Rect::new(
+            screen_width()*LAYERMANAGER_LEFT_PADDING,
+            screen_height()*(1.0-LAYERMANAGER_BOTTOM_PADDING-LAYERMANAGER_HEIGHT) - (visualiser.layers.layers.len()-1) as f32 * 
+                (screen_height()*(LAYERMANAGER_HEIGHT+LAYERMANAGER_TOP_PADDING)) + scroll,
+            screen_width()*(MENU_SCREEN_PROPORTION-LAYERMANAGER_LEFT_PADDING-LAYERMANAGER_RIGHT_PADDING),
+            screen_height()*LAYERMANAGER_HEIGHT
+        );
+        manager.outer_rect = outer_rect;
+        manager
     }
 
     fn translate(&mut self, new_outer_rect_pos: (f32, f32)) {
@@ -2213,6 +2332,8 @@ impl LayerManager {
 
         let translate = (-old_inner.x, -old_inner.y);
         self.translate_items(translate);
+        
+        self.translated = false;
     }
 
     fn update(&mut self, layer: &mut Layer, update_edit_button: bool) -> bool {
@@ -2310,8 +2431,19 @@ impl LayerManager {
             self.dragging = false;
         }
     }   
-}
 
+    fn refresh_gradient(&mut self, visualiser: &Visualiser) {
+        Texture2D::delete(&self.border_back);
+        self.border_back = get_back_gradient(visualiser, self.outer_rect.x as u16, self.outer_rect.w as u16, self.outer_rect.h as u16);
+    
+        self.palette_button.refresh_gradient(visualiser);
+        self.edit_button.refresh_gradient(visualiser);
+        self.layer_range_dropdown.refresh_gradient(visualiser);
+        self.delete_button.refresh_gradient(visualiser);
+
+        self.name.refresh_gradient(visualiser);
+    }
+}
 struct LayersMenu {
     layer_managers: Vec<LayerManager>,
     add_button: Button,
@@ -2349,16 +2481,12 @@ impl LayersMenu {
             add_rect.size().into(),
             (0., 0.),
             vec![
-                Box::new(ButtonImageElement::from_texture(
-                    get_back_gradient(
-                        visualiser, 
-                        add_rect.x as u16, 
-                        add_rect.w as u16, 
-                        add_rect.h as u16
-                    ),
-                    1., 
+                Box::new(ButtonGradientElement::new(
+                    visualiser,
+                    None,
                     (0., 0.),
-                    0
+                    add_rect.size().into(),
+                    (0., 0.), WHITE, 0
                 )),
                 Box::new(ButtonColourElement::new(
                     BLACK,
@@ -2390,7 +2518,7 @@ impl LayersMenu {
                     (0., add_rect.h/3.),
                     5
                 )),
-                Box::new(ButtonImageElement::from_image(
+                Box::new(ButtonImageElement::new(
                     load_image("assets/plus.png").await.unwrap(),
                     1.,
                     DrawTextureParams { dest_size: Some((cutout_width, cutout_width).into()), ..Default::default() },
@@ -2435,7 +2563,8 @@ impl LayersMenu {
 
     fn delete_layer(&mut self, visualiser: &mut Visualiser, i: usize) {
         visualiser.layers.delete_layer(i);
-        self.layer_managers.remove(i);
+        let deleted = self.layer_managers.remove(i);
+        drop(deleted);
 
         for (i, layer_manager) in self.layer_managers.iter_mut().enumerate() {
             layer_manager.translate((
@@ -2676,6 +2805,7 @@ impl MenuType for LayersMenu {
         if changed {
             Layers::place_constraints(&mut visualiser.layers.layers);
             visualiser.generate_image();
+            return MenuSignal::RefreshGradients;
         }
 
         MenuSignal::None
@@ -2686,6 +2816,13 @@ impl MenuType for LayersMenu {
             if manager.name.selected { return true }
         }
         false
+    }
+
+    fn refresh_gradients(&mut self, visualiser: &Visualiser) {
+        self.add_button.refresh_gradient(visualiser);
+        for manager in self.layer_managers.iter_mut() {
+            manager.refresh_gradient(visualiser);
+        }
     }
 }
 
@@ -2782,6 +2919,7 @@ impl SpecificMenuEditorInputGenerator {
         let rect = self.get_inputbox_dims(num);
 
         TextBox::new(
+            visualiser,
             Some(InputLabel { 
                 text: String::from(label),
                 label_dims: self.measure_text(label), 
@@ -2789,7 +2927,6 @@ impl SpecificMenuEditorInputGenerator {
             }),
             String::from("0"),
             rect.w, rect.h, rect.x as u16, rect.y,
-            get_back_gradient(visualiser, rect.x as u16, rect.w as u16, rect.h as u16),
             TextParams { font: self.font, font_size: self.font_size, color: WHITE, ..Default::default() }
         )
     }
@@ -2892,6 +3029,21 @@ impl OrbitTrapEditor {
         }
 
         changed
+    }
+
+    fn refresh_gradients(&mut self, visualiser: &Visualiser) {
+        Texture2D::delete(&self.top_bar);
+        self.top_bar = get_back_gradient(visualiser, 0, 
+            (screen_width()*MENU_SCREEN_PROPORTION) as u16, 
+            (screen_height()*LAYEREDTIOR_SPECIFIC_MENU_BAR_HEIGHT) as u16
+        );
+
+        self.trap_type.refresh_gradient(visualiser);
+        self.analysis.refresh_gradient(visualiser);
+        self.center_re.refresh_gradient(visualiser);
+        self.center_im.refresh_gradient(visualiser);
+        self.radius.refresh_gradient(visualiser);
+        self.arm_length.refresh_gradient(visualiser);
     }
 }
 
@@ -3014,6 +3166,12 @@ impl MenuType for LayerEditorMenu {
 
     fn open_layer_to_edit(&mut self, index: usize, _visualiser: &Visualiser) {
         self.set_layer_to_edit(index);
+    }
+
+    fn refresh_gradients(&mut self, visualiser: &Visualiser) {
+        self.layer_carousel.refresh_gradient(visualiser);
+        self.layer_type.refresh_gradient(visualiser);
+        self.orbit_trap_editor.refresh_gradients(visualiser);
     }
 }
 
@@ -3167,6 +3325,7 @@ struct PaletteEditor {
     title_text_measure: TextDimensions,
     title_text_colour: Color,
     colour_map_rect: Rect,
+    colour_map_texture: Texture2D,
     colour_point_editors: Vec<ColourPointEditor>,
     add_button: Button,
     delete_button: Button,
@@ -3177,6 +3336,7 @@ struct PaletteEditor {
     bar_rect: Rect,
     bar_grad: Texture2D,
     palette_rect: Rect,
+    palette_texture: Texture2D,
     mapping_type: DropDown<MappingType>,
     length_slider: Slider,
     offset_slider: Slider,
@@ -3238,20 +3398,24 @@ impl PaletteEditor {
                 screen_width()*(MENU_SCREEN_PROPORTION-2.*PALETTEEDITOR_HOR_PADDING),
                 screen_height()*PALETTEEDITOR_PALETTE_HEIGHT
             ),
+            colour_map_texture: Texture2D::empty(),
             colour_point_editors: Vec::new(),
             add_button: Button::new(
                 (button_size, button_size),
                 (start_x, title_rect.h + 2.*vert_padding + screen_height()*PALETTEEDITOR_PALETTE_HEIGHT
                         +screen_width()*2.*PALETTEEDITOR_COLOUR_POINT_WIDTH),
                 vec![
-                    Box::new(ButtonImageElement::from_texture(
-                        get_back_gradient(visualiser, start_x as u16, button_size as u16, button_size as u16),
-                        1.0, (0., 0.), 0
+                    Box::new(ButtonGradientElement::new(
+                        visualiser, None,
+                        (start_x, title_rect.h + 2.*vert_padding + screen_height()*PALETTEEDITOR_PALETTE_HEIGHT
+                        +screen_width()*2.*PALETTEEDITOR_COLOUR_POINT_WIDTH),
+                        (button_size, button_size),
+                        (0., 0.), WHITE, 0
                     )),
                     Box::new(ButtonColourElement::new(
                         BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 1
                     )),
-                    Box::new(ButtonImageElement::from_image(
+                    Box::new(ButtonImageElement::new(
                         load_image("assets/plus.png").await.unwrap(),
                         1.0,
                         DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
@@ -3272,14 +3436,19 @@ impl PaletteEditor {
                         title_rect.h + 2.*vert_padding + screen_height()*PALETTEEDITOR_PALETTE_HEIGHT
                             +screen_width()*2.*PALETTEEDITOR_COLOUR_POINT_WIDTH),
                 vec![
-                    Box::new(ButtonImageElement::from_texture(
-                        get_back_gradient(visualiser, delete_button_start_x as u16, button_size as u16, button_size as u16),
-                        1.0, (0., 0.), 0
+                    Box::new(ButtonGradientElement::new(
+                        visualiser,
+                        None,
+                        (delete_button_start_x, 
+                            title_rect.h + 2.*vert_padding + screen_height()*PALETTEEDITOR_PALETTE_HEIGHT
+                                +screen_width()*2.*PALETTEEDITOR_COLOUR_POINT_WIDTH),
+                        (button_size, button_size),
+                        (0., 0.), WHITE, 0
                     )),
                     Box::new(ButtonColourElement::new(
                         BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 1
                     )),
-                    Box::new(ButtonImageElement::from_image(
+                    Box::new(ButtonImageElement::new(
                         load_image("assets/bin.png").await.unwrap(),
                         1.0,
                         DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
@@ -3291,7 +3460,7 @@ impl PaletteEditor {
                     Box::new(ButtonColourElement::new(
                         BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 3
                     )),
-                    Box::new(ButtonImageElement::from_image(
+                    Box::new(ButtonImageElement::new(
                         load_image("assets/binOpen.png").await.unwrap(),
                         1.0,
                         DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
@@ -3313,6 +3482,7 @@ impl PaletteEditor {
             bar_rect, 
             bar_grad: get_back_gradient(visualiser, bar_rect.x as u16, bar_rect.w as u16, bar_rect.h as u16),
             palette_rect,
+            palette_texture: Texture2D::empty(),
             mapping_type: DropDown::new(
                 visualiser,
                 font_size as u16,
@@ -3328,16 +3498,17 @@ impl PaletteEditor {
                 (screen_width()*(MENU_SCREEN_PROPORTION/2. - PALETTEEDITOR_HOR_PADDING/2.) - button_size, 
                          screen_height() - button_size - vert_padding),
                 vec![
-                    Box::new(ButtonImageElement::from_texture(
-                        get_back_gradient(visualiser, 
-                            (screen_width()*(MENU_SCREEN_PROPORTION/2. - PALETTEEDITOR_HOR_PADDING/2.) - button_size) as u16, 
-                            button_size as u16, button_size as u16),
-                        1.0, (0., 0.), 0
+                    Box::new(ButtonGradientElement::new(
+                        visualiser, None,
+                        (screen_width()*(MENU_SCREEN_PROPORTION/2. - PALETTEEDITOR_HOR_PADDING/2.) - button_size, 
+                         screen_height() - button_size - vert_padding),
+                        (button_size, button_size),
+                        (0., 0.), WHITE, 0
                     )),
                     Box::new(ButtonColourElement::new(
                         BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 1
                     )),
-                    Box::new(ButtonImageElement::from_image(
+                    Box::new(ButtonImageElement::new(
                         load_image("assets/tick.png").await.unwrap(),
                         1.0,
                         DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
@@ -3357,16 +3528,18 @@ impl PaletteEditor {
                 (screen_width()*(MENU_SCREEN_PROPORTION/2. + PALETTEEDITOR_HOR_PADDING/2.), 
                          screen_height() - button_size - vert_padding),
                 vec![
-                    Box::new(ButtonImageElement::from_texture(
-                        get_back_gradient(visualiser, 
-                            (screen_width()*(MENU_SCREEN_PROPORTION/2. + PALETTEEDITOR_HOR_PADDING/2.)) as u16, 
-                            button_size as u16, button_size as u16),
-                        1.0, (0., 0.), 0
+                    Box::new(ButtonGradientElement::new(
+                        visualiser, None,
+                        (screen_width()*(MENU_SCREEN_PROPORTION/2. + PALETTEEDITOR_HOR_PADDING/2.), 
+                         screen_height() - button_size - vert_padding),
+                        (button_size, button_size),
+                        (0., 0.),
+                        WHITE, 0
                     )),
                     Box::new(ButtonColourElement::new(
                         BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 1
                     )),
-                    Box::new(ButtonImageElement::from_image(
+                    Box::new(ButtonImageElement::new(
                         load_image("assets/cross.png").await.unwrap(),
                         1.0,
                         DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
@@ -3454,13 +3627,13 @@ impl PaletteEditor {
             None, 
             Some(
                 TextBox::new(
+                    visualiser,
                     None, 
                     String::from(""),
                     textbox_width,
                     textbox_height,
                     textbox_start_x as u16,
                     rect.y - screen_height()*(PALETTEEDITOR_TEXTBOX_HEIGHT-PALETTEEDITOR_COLOUR_SLIDER_HEIGHT)/2.,
-                    get_back_gradient(visualiser, textbox_start_x as u16, textbox_width as u16, textbox_height as u16),
                     TextParams { 
                         font, 
                         font_size: font_size as u16,
@@ -3612,8 +3785,12 @@ impl MenuType for PaletteEditor {
 
         let mut changed_this_frame = false;
 
+        // for some reason deleting only works before creating a new texture, not after using one,
+        // so this texture has to be an attribute of self
+        Texture2D::delete(&self.colour_map_texture);
+        self.colour_map_texture = palette.get_full_gradient(self.colour_map_rect.w, self.colour_map_rect.h);
         draw_texture(
-            palette.get_full_gradient(self.colour_map_rect.w, self.colour_map_rect.h), 
+            self.colour_map_texture, 
             self.colour_map_rect.x, self.colour_map_rect.y, WHITE
         );
         let mut selected_point: Option<usize> = None;
@@ -3643,8 +3820,10 @@ impl MenuType for PaletteEditor {
         }
 
         draw_texture(self.bar_grad, self.bar_rect.x, self.bar_rect.y, WHITE);
+        Texture2D::delete(&self.palette_texture);
+        self.palette_texture = palette.get_full_palette(self.palette_rect.w, self.palette_rect.h, visualiser.max_iterations);
         draw_texture(
-            palette.get_full_palette(self.palette_rect.w, self.palette_rect.h, visualiser.max_iterations), 
+            self.palette_texture, 
             self.palette_rect.x, self.palette_rect.y, WHITE
         );
 
@@ -3707,6 +3886,35 @@ impl MenuType for PaletteEditor {
         self.old_palette = visualiser.layers.layers[index].palette.clone();
 
         self.load_colour_points(&visualiser.layers.layers[index].palette);
+    }
+
+    fn refresh_gradients(&mut self, visualiser: &Visualiser) {
+        Texture2D::delete(&self.title_back);
+        Texture2D::delete(&self.bar_grad);
+        Texture2D::delete(&self.colour_map_texture);
+        Texture2D::delete(&self.palette_texture);
+
+        let title_rect = Rect::new(0., 0., 
+            screen_width()*MENU_SCREEN_PROPORTION, 
+            screen_height()*(2.*STATE_TEXT_PADDING_PROPORTION) + screen_width()*STATE_TEXT_FONT_PROPORTION);
+        self.title_back = get_back_gradient(visualiser, 0, title_rect.w as u16, title_rect.h as u16);
+        self.bar_grad =  get_back_gradient(visualiser, self.bar_rect.x as u16, 
+            self.bar_rect.w as u16, self.bar_rect.h as u16);
+            
+        self.layer_index = self.layer_index.clamp(0, visualiser.layers.layers.len()-1);
+
+        let palette = &visualiser.layers.layers[self.layer_index].palette;
+        self.colour_map_texture = palette.get_full_gradient(self.colour_map_rect.w, self.colour_map_rect.h);
+        self.palette_texture = palette.get_full_palette(self.palette_rect.w, self.palette_rect.h, visualiser.max_iterations);
+
+        self.add_button.refresh_gradient(visualiser);
+        self.delete_button.refresh_gradient(visualiser);
+        self.red_slider.refresh_gradient(visualiser);
+        self.green_slider.refresh_gradient(visualiser);
+        self.blue_slider.refresh_gradient(visualiser);
+        self.mapping_type.refresh_gradient(visualiser);
+        self.length_slider.refresh_gradient(visualiser);
+        self.offset_slider.refresh_gradient(visualiser);
     }
 }
 
@@ -3786,11 +3994,11 @@ impl ScreenshotMenu {
                 (button_size, button_size),
                 (button_x_padding, bar_rect.y + screen_height()*SCREENSHOT_VERT_PADDING),
                 vec![
-                    Box::new(ButtonImageElement::from_texture(
-                        get_back_gradient(visualiser, button_x_padding as u16, button_size as u16, button_size as u16), 
-                        1., 
-                        (0., 0.), 
-                        0
+                    Box::new(ButtonGradientElement::new(
+                        visualiser, None,
+                        (button_x_padding, bar_rect.y + screen_height()*SCREENSHOT_VERT_PADDING),
+                        (button_size, button_size),
+                        (0., 0.), WHITE, 0
                     )),
                     Box::new(ButtonColourElement::new(
                         BLACK,
@@ -3798,7 +4006,7 @@ impl ScreenshotMenu {
                         (button_border, button_border),
                         1
                     )),
-                    Box::new(ButtonImageElement::from_image(
+                    Box::new(ButtonImageElement::new(
                         load_image("assets/export.png").await.unwrap(), 
                         1., 
                         DrawTextureParams { dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default() }, 
@@ -3823,11 +4031,11 @@ impl ScreenshotMenu {
                 (button_size, button_size),
                 (screen_width()*MENU_SCREEN_PROPORTION - button_size - button_x_padding, bar_rect.y + screen_height()*SCREENSHOT_VERT_PADDING),
                 vec![
-                    Box::new(ButtonImageElement::from_texture(
-                        get_back_gradient(visualiser, button_x_padding as u16, button_size as u16, button_size as u16), 
-                        1., 
-                        (0., 0.), 
-                        0
+                    Box::new(ButtonGradientElement::new(
+                        visualiser, None,
+                        (screen_width()*MENU_SCREEN_PROPORTION - button_size - button_x_padding, bar_rect.y + screen_height()*SCREENSHOT_VERT_PADDING),
+                        (button_size, button_size),
+                        (0., 0.), WHITE, 0
                     )),
                     Box::new(ButtonColourElement::new(
                         BLACK,
@@ -3835,7 +4043,7 @@ impl ScreenshotMenu {
                         (button_border, button_border),
                         1
                     )),
-                    Box::new(ButtonImageElement::from_image(
+                    Box::new(ButtonImageElement::new(
                         load_image("assets/stop.png").await.unwrap(), 
                         1., 
                         DrawTextureParams { dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default() }, 
@@ -3891,11 +4099,13 @@ impl ScreenshotMenu {
 
         let gradient = get_back_gradient(visualiser, rect.x as u16, rect.w as u16, rect.h as u16);
         let label_colour = get_brightest_colour(gradient);
+        Texture2D::delete(&gradient);
 
         TextBox::new(
+            visualiser,
             Some(InputLabel::new(name, font, font_size, label_colour)),
             String::from(default_data),
-            rect.w, rect.h, rect.x as u16, rect.y, gradient, 
+            rect.w, rect.h, rect.x as u16, rect.y, 
             TextParams { font, font_size: font_size as u16, color: WHITE, ..Default::default() }
         )       
     }
@@ -3986,5 +4196,19 @@ impl MenuType for ScreenshotMenu {
             if textbox.selected { return true}
         }
         false
+    }
+
+    fn refresh_gradients(&mut self, visualiser: &Visualiser) {
+        Texture2D::delete(&self.bar_grad);
+        self.bar_grad = get_back_gradient(visualiser, 0, self.bar_rect.w as u16, self.bar_rect.h as u16);
+
+        self.name.refresh_gradient(visualiser);
+        self.resolution.refresh_gradient(visualiser);
+        self.width.refresh_gradient(visualiser);
+        self.height.refresh_gradient(visualiser);
+        self.export.refresh_gradient(visualiser);
+        self.cancel.refresh_gradient(visualiser);
+
+        self.progress_bar.refresh_gradient(visualiser);
     }
 }
