@@ -50,6 +50,9 @@ pub const MIN_FPS: usize = 10;
 /// extra fps that must be exceeded before the pixel size decreases
 pub const FPS_DROP_EXCESS: usize = (MIN_FPS as f32 * 0.75) as usize;
 pub const MAX_QUALITY: usize = 20;
+/// if the percentage completed is above this value just after
+/// the thread pool has started, the pool will be joined
+pub const JOIN_PROGRESS_PERCENT: f32 = 0.05;
 
 pub const MAX_ITERATION_STEPS: [f32; 6] = [250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0];
 
@@ -879,7 +882,9 @@ pub struct Visualiser {
     arb_precision: bool,
     moving: bool,
     exporter: Exporter,
-    progress_tracker: Arc<Mutex<usize>>
+    progress_tracker: Arc<Mutex<usize>>,
+    render_start_time: Instant,
+    last_render_time: f32
 }
 impl Visualiser {
     pub fn new(
@@ -905,7 +910,9 @@ impl Visualiser {
             arb_precision: false,
             moving: false,
             exporter: Exporter::new(),
-            progress_tracker: Arc::new(Mutex::new(0))
+            progress_tracker: Arc::new(Mutex::new(0)),
+            render_start_time: Instant::now(),
+            last_render_time: f32::INFINITY
         }
     }
 
@@ -945,6 +952,7 @@ impl Visualiser {
 
     fn generate_image(&mut self) {
         if self.rendering {
+            if self.moving { return }
             self.quality += 1;
             self.cancel_current_render();
         }
@@ -954,14 +962,7 @@ impl Visualiser {
 
         self.progress_tracker = Arc::new(Mutex::new(0));
         self.generate_given_image(self.image.clone(), self.current_dimensions.clone(), self.pixel_step, Arc::clone(&self.progress_tracker));
-
-        // if !self.arb_precision && self.quality > 1 {
-        //     self.thread_pool.join();
-        // } 
-        if self.quality > 1 {
-            self.thread_pool.join();
-            self.rendering = false;
-        } 
+        self.render_start_time = Instant::now();
         
         Texture2D::delete(&self.texture);
         self.texture = Texture2D::from_image(&self.image.lock().unwrap());
@@ -1022,15 +1023,6 @@ impl Visualiser {
 
     /// draw a generated image to the screen
     pub fn draw(&mut self) {
-        if self.rendering {
-            Texture2D::delete(&self.texture);
-            self.texture = Texture2D::from_image(&self.image.lock().unwrap());
-
-            if self.thread_pool.active_count() == 0 && self.thread_pool.queued_count() == 0 {
-                self.rendering = false;
-            }
-        }
-
         let start_x = screen_width() - self.current_dimensions.x as f32;
         draw_texture(self.texture, start_x, 0.0, WHITE);
 
@@ -1058,11 +1050,13 @@ impl Visualiser {
     }
 
     fn update(&mut self) {
-        if !self.exporter.exporting {
-            self.user_move();
-        } else {
+        if self.exporter.exporting {
             self.exporter.update(&self.thread_pool);
+            return;
         }
+        self.user_move();
+
+        self.manage_render_time();
     }
 
     fn move_view_double(&self, center: &Complex, dt: f64) -> (ComplexType, bool) {
@@ -1129,8 +1123,6 @@ impl Visualiser {
     /// 
     /// return whether the user has zoomed or not
     fn user_zoom(&mut self, _dt: f64) -> bool {
-        // if (get_fps() as usize) < MIN_FPS {return false}
-
         let mut zoomed = true;
         
         match (is_key_down(KeyCode::Up), is_key_down(KeyCode::Down)) {
@@ -1217,18 +1209,45 @@ impl Visualiser {
         );
     }
 
-    fn change_quality(&mut self) {
-        if self.quality < self.saved_quality {
+    fn finish_render(&mut self) {
+        self.rendering = false;
+        self.last_render_time = self.render_start_time.elapsed().as_secs_f32();
+        if self.last_render_time <= 1. / (MIN_FPS + FPS_DROP_EXCESS) as f32 && self.quality > 1 {
+            self.quality -= 1;
+        }
+    }
+
+    /// manage render parameters while an image is being rendered
+    fn manage_render_time(&mut self) {
+        if !self.rendering { return }
+
+        Texture2D::delete(&self.texture);
+        self.texture = Texture2D::from_image(&self.image.lock().unwrap());
+
+        if self.quality < self.saved_quality && self.moving {
             self.quality = self.saved_quality;
         }
 
-        if !self.rendering && (get_fps() as usize) < MIN_FPS && self.quality < MAX_QUALITY { // FPS too low
-            self.quality += 1;
-        } else if (get_fps() as usize) > MIN_FPS + FPS_DROP_EXCESS && self.quality > 1 { // FPS considerably high
-            self.quality -= 1;
+        if self.last_render_time <= 1. / MIN_FPS as f32 {
+            self.thread_pool.join();
+            Texture2D::delete(&self.texture);
+            self.texture = Texture2D::from_image(&self.image.lock().unwrap());
+
+            self.finish_render();
+            return;
         }
 
-        self.saved_quality = self.quality;
+        if self.thread_pool.active_count() == 0 && self.thread_pool.queued_count() == 0 {
+            self.finish_render();
+            return;
+        }
+
+        if self.render_start_time.elapsed().as_secs_f32() < 1. / MIN_FPS as f32 { return }
+
+        if self.moving {
+            self.quality += 1;
+            self.cancel_current_render();
+        }
     }
 
     /// lets the user change the view
@@ -1249,7 +1268,6 @@ impl Visualiser {
     
         if moved_view || zoomed || iter || tp {
             self.moving = true;
-            self.change_quality();
             self.generate_image();
         // user stopped moving - increase quality
         } else if !self.rendering && self.quality > 1 {
@@ -1265,7 +1283,7 @@ impl Visualiser {
         if self.pixel_step <= 2e-16 && !self.arb_precision {
             self.arb_precision = true;
             self.center = self.center.make_big();
-            self.quality +=1 ;
+            self.quality += 1 ;
         } else if self.pixel_step > 2e-16 && self.arb_precision {
             self.arb_precision = false;
         }
@@ -1303,7 +1321,7 @@ impl Visualiser {
             }
         }
 
-        self.change_quality();
+        self.manage_render_time();
         self.update_precision();
         self.generate_image();
         self.draw();

@@ -5,7 +5,7 @@
 // copyright owner.
 
 use std::ops::{Add, Mul, Div, Sub, Neg};
-use dashu_float::FBig;
+use dashu_float::{FBig, round::mode};
 
 fn factorial(n: u32) -> u32 {
     let mut result = 1;
@@ -118,14 +118,30 @@ impl ComplexType {
 
     pub fn update_real_from_string(&mut self, new: String) {
         match self {
-            ComplexType::Double(ref mut c) => c.update_real_from_string(new),
-            ComplexType::Big(ref mut c) => c.update_real_from_string(new)
+            ComplexType::Double(ref mut c) => c.update_real_from_string(new.clone()),
+            ComplexType::Big(ref mut c) => c.update_real_from_string(new.clone())
+        }
+        match self {
+            ComplexType::Big(_) => {},
+            ComplexType::Double(c) => {
+                if c.real.to_string() != new {
+                    *self = self.make_big();
+                }
+            }
         }
     }
     pub fn update_im_from_string(&mut self, new: String) {
         match self {
-            ComplexType::Double(ref mut c) => c.update_im_from_string(new),
-            ComplexType::Big(ref mut c) => c.update_im_from_string(new)
+            ComplexType::Double(ref mut c) => c.update_im_from_string(new.clone()),
+            ComplexType::Big(ref mut c) => c.update_im_from_string(new.clone())
+        }
+        match self {
+            ComplexType::Big(_) => {},
+            ComplexType::Double(c) => {
+                if c.im.to_string() != new {
+                    *self = self.make_big();
+                }
+            }
         }
     }
 }
@@ -395,8 +411,8 @@ impl BigComplex {
     /// double precision Complex number
     pub fn from_complex(c: Complex) -> BigComplex {
         BigComplex {
-            real: FBig::try_from(c.real).unwrap().with_precision(100).value(),
-            im: FBig::try_from(c.im).unwrap().with_precision(100).value()
+            real: FBig::try_from(c.real).unwrap().with_precision(64).value(),
+            im: FBig::try_from(c.im).unwrap().with_precision(64).value()
         }
     }
 
@@ -404,8 +420,8 @@ impl BigComplex {
     /// given f64 numbers
     pub fn from_f64s(real: f64, im: f64) -> BigComplex {
         BigComplex {
-            real: FBig::try_from(real).unwrap().with_precision(100).value(),
-            im: FBig::try_from(im).unwrap().with_precision(100).value()
+            real: FBig::try_from(real).unwrap(),
+            im: FBig::try_from(im).unwrap()
         }
     }
 
@@ -415,8 +431,8 @@ impl BigComplex {
         //     im: FBig::from_str_native(im).unwrap().with_precision(100).value()
         // }
         BigComplex {
-            real: FBig::<dashu_float::round::mode::Zero, 10>::from_str_native(real).unwrap().with_base_and_precision::<2>(100).value(),
-            im: FBig::<dashu_float::round::mode::Zero, 10>::from_str_native(im).unwrap().with_base_and_precision::<2>(100).value()
+            real: FBig::<mode::Zero, 10>::from_str_native(real).unwrap().with_base::<2>().value(),
+            im: FBig::<mode::Zero, 10>::from_str_native(im).unwrap().with_base::<2>().value()
         }
     }
 
@@ -471,15 +487,13 @@ impl ComplexNumber for BigComplex {
     }
 
     fn update_real_from_string(&mut self, new: String) {
-        println!("{}", new);
-        if let Ok(new) = FBig::<dashu_float::round::mode::Zero, 10>::from_str_native(&new) {
-            self.real = new.with_base_and_precision::<2>(100).value();
+        if let Ok(new) = FBig::<mode::Zero, 10>::from_str_native(&new) {
+            self.real = new.with_base::<2>().value();
         }
-        println!("{}", self.real.clone().with_base::<10>().value());
     }
     fn update_im_from_string(&mut self, new: String) {
-        if let Ok(new) = FBig::<dashu_float::round::mode::Zero, 10>::from_str_native(&new) {
-            self.im = new.with_base_and_precision::<2>(100).value();
+        if let Ok(new) = FBig::<mode::Zero, 10>::from_str_native(&new) {
+            self.im = new.with_base::<2>().value();
         }
     }
 }
