@@ -19,7 +19,7 @@ pub mod complex;
 use complex::*;
 pub mod palettes;
 pub mod layers;
-use layers::Layers;
+use layers::{Layer, Layers};
 mod menu;
 use menu::Menu;
 
@@ -34,10 +34,6 @@ pub const EPSILON: f64 = 1e-6f64;
 // 3D 
 pub const H2: f64 = 1.5;
 pub const ANGLE: f64 = -45.;
-pub const BAILOUT_3D: f64 = 10000.;
-
-// orbit trap
-pub const BAILOUT_ORBIT_TRAP: f64 = 20.0;
 
 // user changing view
 pub const ZOOM_PERCENT_INC: f64 = 0.5f64;
@@ -55,6 +51,25 @@ pub const MAX_QUALITY: usize = 20;
 pub const JOIN_PROGRESS_PERCENT: f32 = 0.05;
 
 pub const MAX_ITERATION_STEPS: [f32; 6] = [250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0];
+
+fn get_str_between<'a>(text: &'a str, start_pattern: &str, end_pattern: &str) -> &'a str {
+    let start = text.find(start_pattern).and_then(|i| Some(i+1)).unwrap_or(0);
+    let end = text[start..].find(end_pattern).unwrap_or(text.len()-start) + start;
+    &text[start..end]
+}
+
+fn calculate_checksum(text: &str) -> usize {
+    let oneline = text.split_ascii_whitespace().collect::<Vec<&str>>().join("");
+    let chars: Vec<&str> = oneline.split("").collect();
+    let mut total = 0;
+    for c in chars {
+        if let Ok(num) = c.parse::<usize>() {
+            total += num
+        }
+    }
+    
+    total
+}
 
 pub struct App {
     visualiser: Visualiser,
@@ -99,7 +114,7 @@ impl JuliaSeed {
 pub mod orbit_trap {
     use std::f64::consts::PI;
 
-    use crate::BAILOUT_ORBIT_TRAP;
+    use crate::get_str_between;
 
     use super::{
         complex::*,
@@ -112,6 +127,26 @@ pub mod orbit_trap {
         Real,
         Imaginary,
         Angle
+    }
+    impl OrbitTrapAnalysis {
+        fn export_num(&self) -> &str {
+            match self {
+                OrbitTrapAnalysis::Distance => "0",
+                OrbitTrapAnalysis::Real => "1",
+                OrbitTrapAnalysis::Imaginary => "2",
+                OrbitTrapAnalysis::Angle => "3"
+            }
+        }
+
+        fn import_from_num(num: char) -> OrbitTrapAnalysis {
+            match num {
+                '0' => OrbitTrapAnalysis::Distance,
+                '1' => OrbitTrapAnalysis::Real,
+                '2' => OrbitTrapAnalysis::Imaginary,
+                '3' => OrbitTrapAnalysis::Angle,
+                c => panic!("no orbit trap analysis for {c}")
+            }
+        }
     }
     impl DropDownType<OrbitTrapAnalysis> for OrbitTrapAnalysis {
         fn get_variants() -> Vec<OrbitTrapAnalysis> {
@@ -179,8 +214,8 @@ pub mod orbit_trap {
 
         /// returns the maximum possible distance
         /// a complex number can be from the trap
-        pub fn greatest_distance2(&self) -> f64 {
-            let big_rad = BAILOUT_ORBIT_TRAP.sqrt();
+        pub fn greatest_distance2(&self, bailout2: f64) -> f64 {
+            let big_rad = bailout2.sqrt();
             match self.analysis {
                 OrbitTrapAnalysis::Distance => (big_rad + self.point.abs_squared().sqrt()).powi(2),
                 OrbitTrapAnalysis::Real => (big_rad + self.point.real.abs()).powi(2),
@@ -256,8 +291,8 @@ pub mod orbit_trap {
 
         /// returns the maximum possible distance
         /// a complex number can be from the trap
-        pub fn greatest_distance2(&self) -> f64 {
-            (BAILOUT_ORBIT_TRAP.sqrt() + self.centre.abs_squared().sqrt()).powi(2)
+        pub fn greatest_distance2(&self, bailout2: f64) -> f64 {
+            (bailout2.sqrt() + self.centre.abs_squared().sqrt()).powi(2)
         }
     }
 
@@ -305,8 +340,8 @@ pub mod orbit_trap {
 
         /// returns the maximum possible distance
         /// a complex number can be from the trap
-        pub fn greatest_distance2(&self) -> f64 {
-            let big_rad = BAILOUT_ORBIT_TRAP.sqrt();
+        pub fn greatest_distance2(&self, bailout2: f64) -> f64 {
+            let big_rad = bailout2.sqrt();
             f64::max(
                 big_rad - (self.radius - self.centre.abs_squared().sqrt()), 
                 self.radius
@@ -314,9 +349,9 @@ pub mod orbit_trap {
         }
 
         /// minimum possible distance a point can be from the trap
-        pub fn minimum_distance2(&self) -> f64 {
+        pub fn minimum_distance2(&self, bailout2: f64) -> f64 {
             // smallest distance between radius of trap and bailout
-            let circle_distance = (self.radius - self.centre.abs_squared().sqrt()) - BAILOUT_ORBIT_TRAP.sqrt();
+            let circle_distance = (self.radius - self.centre.abs_squared().sqrt()) - bailout2.sqrt();
             f64::max(0.0, circle_distance).powi(2)
         }
     }
@@ -329,11 +364,11 @@ pub mod orbit_trap {
     }
     impl OrbitTrapType {
         /// returns the greatest possible distance squared of a point to the trap
-        pub fn greatest_distance2(&self) -> f64 {
+        pub fn greatest_distance2(&self, bailout2: f64) -> f64 {
             match self {
-                OrbitTrapType::Point(point) => point.greatest_distance2(),
-                OrbitTrapType::Cross(cross) => cross.greatest_distance2(),
-                OrbitTrapType::Circle(circle) => circle.greatest_distance2()
+                OrbitTrapType::Point(point) => point.greatest_distance2(bailout2),
+                OrbitTrapType::Cross(cross) => cross.greatest_distance2(bailout2),
+                OrbitTrapType::Circle(circle) => circle.greatest_distance2(bailout2)
             }
         }
 
@@ -410,6 +445,51 @@ pub mod orbit_trap {
                 OrbitTrapType::Point(point) => point.point.im = new,
                 OrbitTrapType::Cross(cross) => cross.centre.im = new,
                 OrbitTrapType::Circle(circle) => circle.centre.im = new
+            }
+        }
+
+        fn export_num(&self) -> &str {
+            match self {
+                OrbitTrapType::Point(_) => "0",
+                OrbitTrapType::Cross(_) => "1",
+                OrbitTrapType::Circle(_) => "2"
+            }
+        }
+
+        fn export_extra_param(&self) -> String {
+            match self {
+                OrbitTrapType::Point(_) => String::from(""),
+                OrbitTrapType::Cross(cross) => cross.arm_length.to_string(),
+                OrbitTrapType::Circle(circle) => circle.radius.to_string()
+            }
+        }
+
+        pub fn get_export_str(&self) -> String {
+            format!["{}({},{}){}[{}]", 
+            self.export_num(), 
+            self.get_center_re().to_string(), self.get_center_im().to_string(),
+            self.get_analysis().export_num(),
+            self.export_extra_param()]
+        }
+
+        pub fn import_from_str(trap: &str) -> OrbitTrapType {
+            let trap_type = trap.chars().nth(0).unwrap();
+            
+            let centre: Vec<&str> = get_str_between(trap, "(", ")").split(",").collect();
+            let centre_re = centre[0].parse::<f64>().unwrap();
+            let centre_im = centre[1].parse::<f64>().unwrap();
+            let centre = (centre_re, centre_im);
+
+            let analysis_n = trap.find(")").unwrap() + 1;
+            let analysis = OrbitTrapAnalysis::import_from_num(trap.chars().nth(analysis_n).unwrap());
+    
+            let specific_param = get_str_between(trap, "[", "]").parse::<f64>().unwrap_or(0.0);
+
+            match trap_type {
+                '0' => OrbitTrapType::Point(OrbitTrapPoint::new(centre, analysis)),
+                '1' => OrbitTrapType::Cross(OrbitTrapCross::new(centre, specific_param, analysis)),
+                '2' => OrbitTrapType::Circle(OrbitTrapCircle::new(centre, specific_param, analysis)),
+                c => panic!("no orbit trap type for {c}")
             }
         }
     }
@@ -601,6 +681,7 @@ struct Renderer {
     center: ComplexType,
     pixel_step: f64,
     max_iterations: u32,
+    bailout2: f64,
     image: Arc<Mutex<Image>>,
     layers: Layers,
     quality: usize,
@@ -702,7 +783,7 @@ impl Renderer {
     }
 
     fn set_pixels(&self, z: ComplexType, x: usize, y: usize, split: &ThreadSplitter) {
-        let colour: Color = self.layers.colour_pixel(z, self.max_iterations);
+        let colour: Color = self.layers.colour_pixel(z, self.max_iterations,  self.bailout2);
             
         let mut im = self.image.lock().unwrap();
 
@@ -723,7 +804,7 @@ impl Renderer {
     }
 
     fn set_pixels_perturbation(&self, dc: Complex, ref_z: &Vec<Complex>, max_ref_iteration: usize, x: usize, y: usize, split: &ThreadSplitter) {
-        let colour: Color = self.layers.colour_pixel_implementors_perturbed(dc, ref_z, max_ref_iteration, self.max_iterations);
+        let colour: Color = self.layers.colour_pixel_implementors_perturbed(dc, ref_z, max_ref_iteration, self.max_iterations, self.bailout2);
             
         let mut im = self.image.lock().unwrap();
 
@@ -751,14 +832,14 @@ struct ReferenceOrbit {
     max_ref_iteration: usize
 }
 impl ReferenceOrbit {
-    fn new(center: &BigComplex, max_iterations: usize) -> ReferenceOrbit {
+    fn new(center: &BigComplex, max_iterations: usize, bailout2: f64) -> ReferenceOrbit {
         let mut ref_z: Vec<Complex> = Vec::with_capacity(max_iterations);
         let mut max_ref_iteration= 0;
 
         let mut z = BigComplex::from_f64s(0., 0.);
         for i in 0..max_iterations {
             ref_z.push(z.to_complex());
-            if z.abs_squared() < BAILOUT_ORBIT_TRAP {
+            if z.abs_squared() < bailout2 {
                 z = z.square() + center;
                 max_ref_iteration = i;
             } else {
@@ -770,6 +851,56 @@ impl ReferenceOrbit {
     }
 }
 
+/// stores the elements of the visualiser that need to be saved
+struct VisualiserParams {
+    center_re: String,
+    center_im: String,
+    magnification: String,
+    max_iterations: String,
+    bailout2: String,
+    layers: Layers
+}
+impl VisualiserParams {
+    fn empty() -> VisualiserParams {
+        VisualiserParams { 
+            center_re: String::from(""), 
+            center_im: String::from(""), 
+            magnification: String::from(""), 
+            max_iterations: String::from(""), 
+            bailout2: String::from(""), 
+            layers: Layers::new(vec![Layer::default()])
+        }
+    }
+
+    fn get_params(visualiser: &Visualiser) -> VisualiserParams {
+        VisualiserParams { 
+            center_re: visualiser.center.real_string(), 
+            center_im: visualiser.center.im_string(), 
+            magnification: visualiser.get_magnification().to_string(), 
+            max_iterations: (visualiser.max_iterations as usize).to_string(), 
+            bailout2: visualiser.bailout2.to_string(), 
+            layers: visualiser.layers.clone()
+        }
+    }
+
+    fn save_params(&self, path: &std::path::PathBuf) {
+        let mut contents = format!("\
+center (re): {}
+center (im): {}
+magnification: {}
+max iterations: {}
+bailout2: {}
+
+{}", 
+        self.center_re, self.center_im, self.magnification, self.max_iterations, self.bailout2,
+        self.layers.get_export_string());
+
+        contents.push_str(&calculate_checksum(&contents).to_string());
+
+        fs::write(path, contents).expect("unable to save visualiser")
+    }
+}
+
 /// responsible for holding the data required whilst
 /// generating the image to be saved to the machine
 struct Exporter {
@@ -778,7 +909,8 @@ struct Exporter {
     name: String,
     dims: ScreenDimensions,
     image: Arc<Mutex<Image>>,
-    progress_tracker: Arc<Mutex<usize>>
+    progress_tracker: Arc<Mutex<usize>>,
+    visualiser_params: VisualiserParams
 }
 impl Exporter {
     fn new() -> Exporter {
@@ -795,7 +927,8 @@ impl Exporter {
             dims: ScreenDimensions::from_tuple((0, 0)),
             images_path: images_path,
             image: Arc::new(Mutex::new(Image::empty())),
-            progress_tracker: Arc::new(Mutex::new(0))
+            progress_tracker: Arc::new(Mutex::new(0)),
+            visualiser_params: VisualiserParams::empty()
         }
     }
 
@@ -804,10 +937,12 @@ impl Exporter {
         name: &String, 
         dimensions: ScreenDimensions,
         current_dimensions: &ScreenDimensions,
-        visualiser_pixel_step: f64
+        visualiser_pixel_step: f64,
+        visualiser_params: VisualiserParams
     ) -> f64 {
         self.name = name.clone();
         self.dims = dimensions;
+        self.visualiser_params = visualiser_params;
 
         let mut images_path = std::env::current_dir().unwrap();
         images_path.push("images");
@@ -849,13 +984,16 @@ impl Exporter {
         let time = StrftimeItems::new("%H_%M_%S");
         self.name = self.name.replace("[date]", &format!["{}", datetime.format_with_items(date.clone())]);
         self.name = self.name.replace("[time]", &format!["{}", datetime.format_with_items(time.clone())]);
-        self.name = format!["{}_{}", self.name, self.dims.as_string()];
-        self.images_path.push(self.name.clone());
 
+        let image_name = format!["{}_{}", self.name, self.dims.as_string()];
         let path = &format!["images/{}.png",
-            self.name.clone()
+            image_name.clone()
         ];
         self.image.lock().unwrap().export_png(path);
+
+        let mut save_path = self.images_path.clone();
+        save_path.push(format!["{}-save.txt", self.name]);
+        self.visualiser_params.save_params(&save_path);
 
         self.exporting = false;
     }
@@ -866,6 +1004,8 @@ pub struct Visualiser {
     center: ComplexType,
     pixel_step: f64,
     max_iterations: f32,
+    /// the squared distance of the bailout
+    bailout2: f64,
     thread_pool: ThreadPool,
     rendering: bool,
     /// used to cancel all currently running threads
@@ -890,10 +1030,12 @@ impl Visualiser {
     pub fn new(
         pixel_step: f64, 
         max_iterations: f32, 
+        bailout: f64,
         view_dimensions: (usize, usize),
         layers: Layers
     ) -> Visualiser {
         Visualiser { pixel_step, max_iterations, layers,
+            bailout2: bailout.powi(2),
             current_dimensions: ScreenDimensions::from_tuple(view_dimensions),
             center: ComplexType::Double(Complex::new(-0.5, 0.0)),
             image: Arc::new(Mutex::new(
@@ -916,6 +1058,10 @@ impl Visualiser {
         }
     }
 
+    pub fn get_magnification(&self) -> f64 {
+        0.005 / self.pixel_step
+    }
+
     pub fn load(&mut self, pixel_step: f64, center_x: f64, center_y: f64, max_iterations: f32) {
         self.pixel_step = pixel_step;
         self.center = ComplexType::Double(Complex::new(center_x, center_y));
@@ -929,6 +1075,41 @@ impl Visualiser {
         self.update_precision();
         self.max_iterations = max_iterations;
         self.move_speed *= pixel_step / 0.005;
+    }
+
+    pub fn import_from_file(&mut self, file_path: &std::path::PathBuf) {
+        let params = fs::read_to_string(file_path).expect("Unable to read file");
+
+        let checksum = calculate_checksum(&params);
+        let lines: Vec<&str> = params.split("\n").collect();
+
+        // check if checksums match
+        match lines.last() {
+            None => return,
+            Some(real_sum) => {
+                let extra_sum = calculate_checksum(real_sum);
+                match real_sum.parse::<usize>() {
+                    Err(_) => return,
+                    Ok(real_sum) => {
+                        if checksum - extra_sum != real_sum { return }
+                    }
+                }
+            }
+        }
+
+        // todo: remove all unwrapping so even less chance of invalid data crashing
+
+        let main_params: &Vec<String> = &lines[0..=4].iter().map(|l| l.split(": ").last().unwrap().to_string()).collect();
+        self.center.update_real_from_string(main_params[0].clone());
+        self.center.update_im_from_string(main_params[1].clone());
+        self.pixel_step = 0.005 / main_params[2].parse::<f64>().unwrap();
+        self.max_iterations = main_params[3].parse::<f32>().unwrap();
+        self.bailout2 = main_params[4].parse::<f64>().unwrap();
+
+        self.layers.import_from_file(&lines[6..lines.len()-1]);
+
+        self.update_precision();
+        self.generate_image();
     }
 
     pub fn set_view_dimensions(&mut self, dimensions: &ScreenDimensions) {
@@ -994,7 +1175,8 @@ impl Visualiser {
                     ComplexType::Double(_) => panic!("arbitrary precision needs an arbitrary precision center"),
                     ComplexType::Big(c) => c
                 }, 
-                self.max_iterations as usize
+                self.max_iterations as usize,
+                self.bailout2
             )))
         };
         
@@ -1008,6 +1190,7 @@ impl Visualiser {
                 center: center.clone(),
                 pixel_step: pixel_step.clone(),
                 max_iterations: self.max_iterations.clone() as u32,
+                bailout2: self.bailout2.clone(),
                 image: Arc::clone(&image),
                 layers: self.layers.clone(),
                 quality: self.quality.clone(),
@@ -1199,7 +1382,12 @@ impl Visualiser {
     }
 
     fn start_export(&mut self, name: &String, dimensions: ScreenDimensions) {
-        let pixel_step = self.exporter.start_export(name, dimensions,  &self.current_dimensions, self.pixel_step);
+        let pixel_step = self.exporter.start_export(
+            name, dimensions,  
+            &self.current_dimensions, 
+            self.pixel_step,
+            VisualiserParams::get_params(&self)
+        );
         self.quality = 1;
         self.generate_given_image(
             Arc::clone(&self.exporter.image), 

@@ -6,6 +6,12 @@
 
 /// dead code that used to be used for specific divergence, now replaced by implementors
 
+// 3D
+pub const BAILOUT_3D: f64 = 10000.;
+
+// orbit trap
+pub const BAILOUT_ORBIT_TRAP: f64 = 20.0;
+
 // DERIVATIVED AND 3D DIVERGENCE THEORY FROM:
 // https://www.math.univ-toulouse.fr/~cheritat/wiki-draw/index.php/Mandelbrot_set#Drawing_algorithms
 
