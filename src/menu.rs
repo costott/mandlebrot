@@ -5,6 +5,7 @@
 // copyright owner.
 
 use macroquad::prelude::*;
+use native_dialog::FileDialog;
 
 use super::{
     ScreenDimensions, Visualiser, interpolate_colour, 
@@ -253,7 +254,8 @@ enum MenuSignal {
     None,
     OpenEditor(usize),
     OpenPalette(usize),
-    RefreshGradients
+    RefreshGradients,
+    Import
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -339,6 +341,19 @@ impl MenuState {
         }
     }
 
+    fn refresh_gradients(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 6], visualiser: &mut Visualiser) {
+        for menu in menus {
+            match menu {
+                Some(m) => m.refresh_gradients(visualiser),
+                None => {}
+            }
+        }
+        *self = match self {
+            MenuState::PaletteEditor => MenuState::UpdateGradient(0),
+            _ => MenuState::UpdateGradient(self.map_state_indexes())
+        }
+    }
+
     async fn process_signal(
         &mut self, 
         menus: &mut [Option<Box<dyn MenuType>>; 6], 
@@ -368,17 +383,10 @@ impl MenuState {
                 }
                 *self = MenuState::PaletteEditor;
             },
-            MenuSignal::RefreshGradients => {
-                for menu in menus {
-                    match menu {
-                        Some(m) => m.refresh_gradients(visualiser),
-                        None => {}
-                    }
-                }
-                *self = match self {
-                    MenuState::PaletteEditor => MenuState::UpdateGradient(0),
-                    _ => MenuState::UpdateGradient(self.map_state_indexes())
-                }
+            MenuSignal::RefreshGradients => self.refresh_gradients(menus, visualiser),
+            MenuSignal::Import => {
+                menus[1] = self.create_menu(visualiser, 1, font).await;
+                self.refresh_gradients(menus, visualiser)
             }
         }
     }
@@ -553,6 +561,7 @@ trait ButtonElement: ButtonElementClone {
     /// lower draw order => drawn first
     fn get_draw_order(&self) -> usize;
     fn refresh_gradient(&mut self, _visualiser: &Visualiser) {}
+    fn drop_textures(&self) {}
     fn gradient_change_layer_i(&mut self, _layer_i: usize) {}
 }
 
@@ -608,6 +617,10 @@ impl ButtonElement for ButtonImageElement {
 
     fn get_draw_order(&self) -> usize {
         self.draw_order
+    }
+
+    fn drop_textures(&self) {
+        Texture2D::delete(&self.image);
     }
 }
 
@@ -666,6 +679,10 @@ impl ButtonElement for ButtonGradientElement {
 
     fn gradient_change_layer_i(&mut self, layer_i: usize) {
         self.layer_i = Some(layer_i);
+    }
+
+    fn drop_textures(&self) {
+        Texture2D::delete(&self.gradient);
     }
 }
 
@@ -771,6 +788,15 @@ impl Button {
             .chain(self.hold_elements.iter_mut()).collect();
         for element in all_elements {
             element.refresh_gradient(visualiser);
+        }
+    }
+
+    fn drop_textures(&self) {
+        let all_elements: Vec<&Box<dyn ButtonElement>> = self.back_elements.iter()
+            .chain(self.hover_elements.iter())
+            .chain(self.hold_elements.iter()).collect();
+        for element in all_elements {
+            element.drop_textures();
         }
     }
 }
@@ -2124,10 +2150,6 @@ struct GeneralMenu {
 }
 impl GeneralMenu {
     fn new(visualiser: &Visualiser, font: Font) -> GeneralMenu {
-        let labels = vec![
-            "center (re)", "center (im)", "magnification", 
-            "max iterations", "bailout"
-        ];
         let box_vert_padding = screen_height() * DEFAULT_INPUT_BOX_VERT_PADDING;
 
         let center_re_input_box = GradientInputBox::default_top(visualiser);
@@ -2193,11 +2215,11 @@ impl GeneralMenu {
         } else if i == 1 {
             visualiser.center.im_string() 
         } else if i == 2 {
-            (0.005/visualiser.pixel_step).to_string()
+            visualiser.get_magnification().to_string()
         } else if i == 3 {
             (visualiser.max_iterations as u32).to_string()
         } else {
-            20.0.to_string() // placeholder until bailout becomes dynamic
+            visualiser.bailout2.sqrt().to_string()
         }
     }
 
@@ -2217,7 +2239,10 @@ impl GeneralMenu {
                 visualiser.max_iterations = new as f32;
             }
         } else {
-            // placeholder until bailout becomes dynamic
+            if let Ok(new) = new.parse::<f64>() {
+                if new <= 0.0 { return };
+                visualiser.bailout2 = new.powi(2);
+            }
         }
     }
 }
@@ -2707,6 +2732,7 @@ impl LayerManager {
         self.name.refresh_gradient(visualiser);
     }
 }
+
 struct LayersMenu {
     layer_managers: Vec<LayerManager>,
     add_button: Button,
@@ -3089,6 +3115,17 @@ impl MenuType for LayersMenu {
         }
     }
 }
+impl Drop for LayersMenu {
+    fn drop(&mut self) {
+        self.add_button.drop_textures();
+        for manager in self.layer_managers.iter() {
+            Texture2D::delete(&manager.border_back);
+            manager.palette_button.drop_textures();
+            manager.edit_button.drop_textures();
+            manager.delete_button.drop_textures();
+        }
+    }
+}
 
 struct OrbitTrapEditor {
     top_bar: Texture2D,
@@ -3129,8 +3166,6 @@ impl OrbitTrapEditor {
         let center_re_input_box = analysis_input_box.next_vert(visualiser, vert_padding, true);
         let center_im_input_box = center_re_input_box.next_vert(visualiser, vert_padding, true);
         let specific_input_box = center_im_input_box.next_vert(visualiser, vert_padding, true);
-
-        let labels = vec!["type", "analysis", "center (re)", "center(im)", "arm length"];
 
         OrbitTrapEditor {
             top_bar,
@@ -4124,6 +4159,7 @@ struct ScreenshotMenu {
     bar_grad: Texture2D,
     export: Button,
     cancel: Button,
+    import: Button,
     progress_bar: ProgressBar,
     exporting: bool,
 }
@@ -4136,8 +4172,6 @@ impl ScreenshotMenu {
         let res_input_box = name_input_box.next_vert(visualiser, vert_padding, true);
         let width_input_box = res_input_box.next_vert(visualiser, vert_padding, true);
         let height_input_box = width_input_box.next_vert(visualiser, vert_padding, true);
-
-        let labels = vec!["name", "resolution", "width", "height"];
 
         let bar_rect = Rect::new(
             0.,
@@ -4244,6 +4278,43 @@ impl ScreenshotMenu {
                     4
                 ))]
             ),
+            import: Button::new(
+                (button_size, button_size),
+                (button_x_padding, bar_rect.y + 2.*screen_height()*SCREENSHOT_VERT_PADDING + button_size),
+                vec![
+                    Box::new(ButtonGradientElement::new(
+                        visualiser, None,
+                        (button_x_padding, bar_rect.y + 2.*screen_height()*SCREENSHOT_VERT_PADDING + button_size),
+                        (button_size, button_size),
+                        (0., 0.), WHITE, 0
+                    )),
+                    Box::new(ButtonColourElement::new(
+                        BLACK,
+                        (inner_button_size, inner_button_size),
+                        (button_border, button_border),
+                        1
+                    )),
+                    Box::new(ButtonImageElement::new(
+                        load_image("assets/import.png").await.unwrap(), 
+                        1., 
+                        DrawTextureParams { dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default() }, 
+                        (button_border, button_border), 
+                        2
+                    ))
+                ],
+                vec![Box::new(ButtonColourElement::new(
+                    HOVER_WHITE_OVERLAY,
+                    (button_size, button_size),
+                    (0., 0.),
+                    3
+                ))],
+                vec![Box::new(ButtonColourElement::new(
+                    HOVER_BLACK_OVERLAY,
+                    (button_size, button_size),
+                    (0., 0.),
+                    4
+                ))]
+            ),
             progress_bar: ProgressBar::new(
                 visualiser, 
                 Rect::new(
@@ -4320,6 +4391,20 @@ impl MenuType for ScreenshotMenu {
 
                 self.exporting = true;
             }
+
+            self.import.update();
+            if self.import.clicked {
+                let mut images_dir = std::env::current_dir().unwrap();
+                images_dir.push("images");
+                if let Ok(Some(file_path)) = FileDialog::new()
+                    .set_location(&images_dir)
+                    .add_filter("Text Files", &["txt"])
+                    .show_open_single_file() 
+                {
+                    visualiser.import_from_file(&file_path);
+                    return MenuSignal::Import;
+                }
+            }
         } else {
             self.draw_top_menu();
 
@@ -4362,6 +4447,7 @@ impl MenuType for ScreenshotMenu {
         self.height.refresh_gradient(visualiser);
         self.export.refresh_gradient(visualiser);
         self.cancel.refresh_gradient(visualiser);
+        self.import.refresh_gradient(visualiser);
 
         self.progress_bar.refresh_gradient(visualiser);
     }

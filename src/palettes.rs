@@ -6,7 +6,7 @@
 
 use macroquad::prelude::*;
 
-use crate::{menu::DropDownType, interpolate_colour, escape_time};
+use crate::{menu::DropDownType, interpolate_colour, escape_time, get_str_between};
 use std::collections::HashSet;
 
 /// the number of iteration values in the palette
@@ -24,6 +24,22 @@ pub enum MappingType {
     Constant,
     /// the palette length stays the same, being extended further with a higher max iterations
     Repeated
+}
+impl MappingType {
+    fn export_num(&self) -> &str {
+        match self {
+            MappingType::Constant => "0",
+            MappingType::Repeated => "1"
+        }
+    }
+
+    fn import_from_num(num: char) -> MappingType {
+        match num {
+            '0' => MappingType::Constant,
+            '1' => MappingType::Repeated,
+            c => panic!("no mapping type for {c}")
+        }
+    }
 }
 impl DropDownType<MappingType> for MappingType {
     fn get_variants() -> Vec<MappingType> {
@@ -103,7 +119,7 @@ impl Palette {
 
     fn unique_point_positions(colour_map: &Vec<ColourPoint>) -> bool {
         let mut unique = HashSet::new();
-        colour_map.into_iter().all(move |c| unique.insert(c.percent as u32))
+        colour_map.into_iter().all(move |c| unique.insert((c.percent*100.) as u32))
     }
  
     /// creates a new colour map with evenly spaced colour points
@@ -322,6 +338,72 @@ impl Palette {
         }
 
         Texture2D::from_image(&image)
+    }
+
+    fn get_export_map_string(&self) -> String {
+        let mut contents = String::from("");
+        for point in self.colour_map.iter() {
+            contents.push_str(&format!("([{}][{}][{}][{}],{})", 
+                point.colour.r.to_string(),
+                point.colour.g.to_string(),
+                point.colour.b.to_string(),
+                point.colour.a.to_string(),
+                point.percent.to_string()
+            ))
+        }
+        contents
+    }
+
+    pub fn get_export_string(&self) -> String {
+        format!["#{}#{}[{}][{}]",
+            self.get_export_map_string(),
+            self.mapping_type.export_num(),
+            self.palette_length.to_string(),
+            self.offset.to_string()
+        ]   
+    }
+
+    fn import_colour_map_from_str(text: &str) -> Vec<ColourPoint> {
+        let mut colour_map = Vec::new();
+
+        let points: Vec<&str> = text.split(")(").collect();
+        for point in points.iter() {
+            let mut point = String::from(*point);
+            point = point.replace("(", "");
+            point = point.replace(")", "");
+
+            let mut colours: Vec<&str> = point.split("][").collect();
+            let end = colours.pop().unwrap();
+            let end = end.split(",").collect::<Vec<&str>>()[0];
+            colours.push(end);
+            let mut colour = [0.0; 4];
+            for (i, colour_str) in colours.iter().enumerate() {
+                let mut colour_str = String::from(*colour_str);
+                colour_str = colour_str.replace("[", "");
+                colour_str = colour_str.replace("]", "");    
+                colour[i] = colour_str.parse::<f32>().unwrap();
+            }
+            let colour = Color::new(colour[0], colour[1], colour[2], colour[3]);
+
+            let percent = point.split(",").last().unwrap().parse::<f32>().unwrap();
+
+            colour_map.push(ColourPoint { colour, percent })
+        }
+
+        colour_map
+    }
+
+    pub fn import_from_str(text: &str) -> Palette {
+        let mapping_num = text[1..].find("#").unwrap() + 2;
+
+        let start_len = text[mapping_num..].find("]").unwrap() + mapping_num + 1;
+
+        Palette::new(
+            Palette::import_colour_map_from_str(get_str_between(text, "#", "#")),
+            MappingType::import_from_num(text.chars().nth(mapping_num).unwrap()),
+            get_str_between(&text[mapping_num..], "[", "]").parse::<f32>().unwrap(),
+            get_str_between(&text[start_len..], "[", "]").parse::<f32>().unwrap()
+        )
     }
 }
 

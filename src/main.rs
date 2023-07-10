@@ -33,6 +33,7 @@ async fn main() {
     let mut visualiser = Visualiser::new(
         0.005, 
         500., 
+        4.5,
         (screen_width() as usize, screen_height() as usize),
         Layers::new(vec![
             Layer::new(LayerType::Colour, LayerRange::OutSet, 1.0, Palette::new_even(MIDNIGHT.to_vec(), MappingType::Repeated, 0.153173, 0.0)),

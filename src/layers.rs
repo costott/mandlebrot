@@ -10,7 +10,7 @@ use std::ops::Range;
 
 use crate::palettes::Palette;
 
-use super::{*, menu::DropDownType};
+use super::{*, menu::DropDownType, get_str_between};
 
 /// analyse the given complex number, letting the implementors
 /// calculate their outputs
@@ -19,15 +19,15 @@ use super::{*, menu::DropDownType};
 /// 
 /// # Returns
 /// returns if the point is in the set or not
-fn diverges_implementors_double(c: Complex, max_iterations: u32, implementations: &mut Vec<LayerImplementation>) -> bool {
+fn diverges_implementors_double(c: Complex, max_iterations: u32, bailout2: f64, implementations: &mut Vec<LayerImplementation>) -> bool {
     let mut z = c;
     for im in implementations.iter_mut() {
-        im.before(max_iterations);
+        im.before(max_iterations, bailout2);
     }
 
     for i in 0..max_iterations {        
         // if z.real.abs() > BAILOUT_ORBIT_TRAP || z.im.abs() > BAILOUT_ORBIT_TRAP { <- much faster but less accurate
-        if z.abs_squared() > BAILOUT_ORBIT_TRAP {
+        if z.abs_squared() > bailout2 {
             for im in implementations.iter_mut() {
                 im.out_set_double(z, i);
             }
@@ -54,15 +54,15 @@ fn diverges_implementors_double(c: Complex, max_iterations: u32, implementations
 /// 
 /// # Returns
 /// returns if the point is in the set or not
-fn diverges_implementors_big(c: BigComplex, max_iterations: u32, implementations: &mut Vec<LayerImplementation>) -> bool {
+fn diverges_implementors_big(c: BigComplex, max_iterations: u32, bailout2: f64, implementations: &mut Vec<LayerImplementation>) -> bool {
     let mut z = c.clone();
     for im in implementations.iter_mut() {
-        im.before(max_iterations);
+        im.before(max_iterations, bailout2);
     }
 
     for i in 0..max_iterations {        
         // if z.real.abs() > BAILOUT_ORBIT_TRAP || z.im.abs() > BAILOUT_ORBIT_TRAP { <- much faster but less accurate
-        if z.abs_squared() > BAILOUT_ORBIT_TRAP {
+        if z.abs_squared() > bailout2 {
             for im in implementations.iter_mut() {
                 im.out_set_big(&z, i);
             }
@@ -89,13 +89,17 @@ fn diverges_implementors_big(c: BigComplex, max_iterations: u32, implementations
 /// 
 /// # Returns
 /// returns if the point is in the set or not
-fn diverges_implementors_big_perturbation(dc: Complex, ref_z: &Vec<Complex>, max_ref_iteration: usize, max_iterations: u32, implementations: &mut Vec<LayerImplementation>) -> bool {
+fn diverges_implementors_big_perturbation(
+    dc: Complex, ref_z: &Vec<Complex>, max_ref_iteration: usize, 
+    max_iterations: u32, bailout2: f64,
+    implementations: &mut Vec<LayerImplementation>
+) -> bool {
     let mut dz = Complex::new(0., 0.);
     // https://fractalforums.org/fractal-mathematics-and-new-theories/28/another-solution-to-perturbation-glitches/4360/msg29835#msg29835
     let mut ref_iteration = 0;
 
     for im in implementations.iter_mut() {
-        im.before(max_iterations);
+        im.before(max_iterations, bailout2);
     }
 
     for i in 0..max_iterations {
@@ -104,7 +108,7 @@ fn diverges_implementors_big_perturbation(dc: Complex, ref_z: &Vec<Complex>, max
 
         let z2 = ref_z[ref_iteration] + dz;
 
-        if z2.abs_squared() > BAILOUT_ORBIT_TRAP {
+        if z2.abs_squared() > bailout2 {
             for im in implementations.iter_mut() {
                 im.out_set_double(z2, i);
             }
@@ -174,6 +178,35 @@ impl LayerType {
             _ => Err("not a trap")
         }
     }
+
+    fn export_num(&self) -> &str {
+        match self {
+            LayerType::Colour => "0",
+            LayerType::ColourOrbitTrap(_) => "1",
+            LayerType::Shading => "2",
+            LayerType::Shading3D => "3",
+            LayerType::ShadingOrbitTrap(_) => "4"
+        }
+    }
+
+    fn get_export_trap(&self) -> String {
+        match self {
+            LayerType::ColourOrbitTrap(trap) => trap.get_export_str(),
+            LayerType::ShadingOrbitTrap(trap) => trap.get_export_str(),
+            _ => String::from("")
+        }
+    }
+
+    fn import_from_str(type_num: char, trap: &str) -> LayerType {
+        match type_num {
+            '0' => LayerType::Colour,
+            '1' => LayerType::ColourOrbitTrap(OrbitTrapType::import_from_str(trap)),
+            '2' => LayerType::Shading,
+            '3' => LayerType::Shading3D,
+            '4' => LayerType::ShadingOrbitTrap(OrbitTrapType::import_from_str(trap)),
+            c => panic!("no layer type for {c}")
+        }
+    }
 }
 impl DropDownType<LayerType> for LayerType {
     fn get_variants() -> Vec<LayerType> {
@@ -221,7 +254,7 @@ impl PartialEq for LayerType {
 /// Controls the behaviour of layer implementors when analysing a point
 trait LayerImplementor {
     /// what needs to happen before iterations start for a given pixel
-    fn before(&mut self, max_iterations: u32);
+    fn before(&mut self, max_iterations: u32, bailout2: f64);
 
     /// what needs to happen each iteration, before the next z is calculated
     /// for double precision
@@ -260,11 +293,11 @@ enum LayerImplementation {
     Shading3DImplementor(Shading3DImplementor)
 }
 impl LayerImplementor for LayerImplementation {
-    fn before(&mut self, max_iterations: u32) {
+    fn before(&mut self, max_iterations: u32, bailout2: f64) {
         match self {
-            LayerImplementation::ColourImplemetor(im) => im.before(max_iterations),
-            LayerImplementation::OrbitTrapImplementor(im) => im.before(max_iterations),
-            LayerImplementation::Shading3DImplementor(im) => im.before(max_iterations)
+            LayerImplementation::ColourImplemetor(im) => im.before(max_iterations, bailout2),
+            LayerImplementation::OrbitTrapImplementor(im) => im.before(max_iterations, bailout2),
+            LayerImplementation::Shading3DImplementor(im) => im.before(max_iterations, bailout2)
         }
     }
 
@@ -344,7 +377,7 @@ impl ColourImplemetor {
     }
 }
 impl LayerImplementor for ColourImplemetor {
-    fn before(&mut self, _max_iterations: u32) {}
+    fn before(&mut self, _max_iterations: u32, _bailout2: f64) {}
 
     fn during_double(&mut self, _z: Complex, _i: u32) {}
     fn during_big(&mut self, _z: &BigComplex, _i: u32) {}
@@ -384,7 +417,7 @@ impl OrbitTrapImplementor {
     fn new(trap: OrbitTrapType) -> OrbitTrapImplementor {
         OrbitTrapImplementor { 
             output: 0.0, 
-            min_distance2: trap.greatest_distance2(),
+            min_distance2: f64::INFINITY,
             divisor: 0.0, 
             trap,
             closest_to_trap: Complex::new(0.0, 0.0),
@@ -412,7 +445,8 @@ impl OrbitTrapImplementor {
     }
 }
 impl LayerImplementor for OrbitTrapImplementor {
-    fn before(&mut self, max_iterations: u32) {
+    fn before(&mut self, max_iterations: u32, bailout2: f64) {
+        self.min_distance2 = self.trap.greatest_distance2(bailout2);
         self.divisor = self.min_distance2.sqrt() / max_iterations as f64;
     }
 
@@ -505,7 +539,7 @@ impl Shading3DImplementor {
     }
 }
 impl LayerImplementor for Shading3DImplementor {
-    fn before(&mut self, _max_iterations: u32) {}
+    fn before(&mut self, _max_iterations: u32, _bailout2: f64) {}
 
     fn during_double(&mut self, z: Complex, _i: u32) {
         self.der = self.der * (z * 2.) + self.dc;
@@ -830,15 +864,15 @@ impl Layers {
 
     /// get the colour for the given complex number after passing 
     /// through all the layers
-    pub fn colour_pixel(&self, c: ComplexType, max_iterations: u32) -> Color {
-        self.colour_pixel_implementors(c, max_iterations)
+    pub fn colour_pixel(&self, c: ComplexType, max_iterations: u32, bailout2: f64) -> Color {
+        self.colour_pixel_implementors(c, max_iterations, bailout2)
     }
 
-    fn colour_pixel_implementors(&self, c: ComplexType, max_iterations: u32) -> Color {
+    fn colour_pixel_implementors(&self, c: ComplexType, max_iterations: u32, bailout2: f64) -> Color {
         let mut implementors = self.implementors.clone();
         let in_set = match c {
-            ComplexType::Double(c) => diverges_implementors_double(c, max_iterations, &mut implementors),
-            ComplexType::Big(c) => diverges_implementors_big(c, max_iterations, &mut implementors)
+            ComplexType::Double(c) => diverges_implementors_double(c, max_iterations, bailout2, &mut implementors),
+            ComplexType::Big(c) => diverges_implementors_big(c, max_iterations, bailout2, &mut implementors)
         };
 
         let mut colour: Option<Color> = None;
@@ -853,9 +887,14 @@ impl Layers {
         }
     }
 
-    pub fn colour_pixel_implementors_perturbed(&self, dc: Complex, ref_z: &Vec<Complex>, max_ref_iteration: usize, max_iterations: u32) -> Color {
+    pub fn colour_pixel_implementors_perturbed(
+        &self, 
+        dc: Complex, ref_z: &Vec<Complex>, max_ref_iteration: usize, 
+        max_iterations: u32, bailout2: f64
+    ) -> Color {
         let mut implementors = self.implementors.clone();
-        let in_set = diverges_implementors_big_perturbation(dc, ref_z, max_ref_iteration, max_iterations, &mut implementors);
+        let in_set = diverges_implementors_big_perturbation(
+            dc, ref_z, max_ref_iteration, max_iterations, bailout2, &mut implementors);
 
         let mut colour: Option<Color> = None;
         for (i, layer) in self.layers.iter().enumerate() {
@@ -867,6 +906,27 @@ impl Layers {
             Some(c) => c,
             None => BLACK
         }
+    }
+
+    pub fn get_export_string(&self) -> String {
+        let mut contents = String::from("");
+        for layer in self.layers.iter() {
+            contents.push_str(&format!["{}\n", layer.get_export_string()])
+        }
+
+        contents
+    }
+
+    pub fn import_from_file(&mut self, layers: &[&str]) {
+        let mut new_layers = Vec::new();
+
+        for layer in layers {
+            new_layers.push(Layer::import_from_str(layer));
+        }
+
+        self.layers = new_layers;
+        Layers::place_constraints(&mut self.layers);
+        self.update_implementors();
     }
 }
 
@@ -893,6 +953,23 @@ impl LayerRange {
             LayerRange::Both => {covered_in_set && covered_out_set},
             LayerRange::InSet => {covered_in_set},
             LayerRange::OutSet => {covered_out_set}
+        }
+    }
+
+    fn export_num(&self) -> &str {
+        match self {
+            LayerRange::InSet => "0",
+            LayerRange::OutSet => "1",
+            LayerRange::Both => "2"
+        }
+    }
+
+    fn import_from_num(num: char) -> LayerRange {
+        match num {
+            '0' => LayerRange::InSet,
+            '1' => LayerRange::OutSet,
+            '3' => LayerRange::Both,
+            c => panic!("no layer range for {c}")
         }
     }
 }
@@ -1085,5 +1162,42 @@ impl Layer {
         };
 
         self.final_colour(colour, this_colour)
+    }
+
+    fn get_export_string(&self) -> String {
+        format!["\"{}\"{}-{}-{}[{}]({})",
+            self.name,
+            self.layer_type.export_num(),
+            self.layer_type.get_export_trap(),
+            self.layer_range.export_num(),
+            self.strength.to_string(),
+            self.palette.get_export_string()
+        ]
+    }
+
+    fn import_from_str(layer: &str) -> Layer {
+        let name = get_str_between(layer, "\"", "\"").to_string();
+        let start_layer = layer[1..].find("\"").unwrap() + 2;
+        let layer = &layer[start_layer..];
+
+        let type_num = layer.chars().nth(0).unwrap();
+        let trap = layer.split("-").nth(1).unwrap();
+
+        let range_num = layer.split("-").nth(2).unwrap().chars().nth(0).unwrap();
+
+        let strength_start= match layer.find("--") {
+            Some(i) => i,
+            None => layer.find("]-").unwrap()
+        };
+        let start = layer.find("](").unwrap() + 2;
+
+        let mut layer = Layer::new(
+            LayerType::import_from_str(type_num, trap), 
+            LayerRange::import_from_num(range_num), 
+            get_str_between(&layer[strength_start..], "[", "]").parse::<f32>().unwrap(), 
+            Palette::import_from_str(&layer[start..layer.len()-1])
+        );
+        layer.name = name;
+        layer
     }
 }
