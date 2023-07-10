@@ -13,7 +13,7 @@ use std::collections::HashSet;
 /// for a 100% palette length for the repeated mapping type 
 /// i.e. 500 => 500 iterations = 100% palette length
 /// in other words, what the palette length represents a fraction of
-const PALETTE_DEPTH: usize = 500;
+const PALETTE_DEPTH: usize = 500; // make this different to start max iter on release
 /// the minimum distance between percentages for a new point 
 /// to be able to be added
 const MIN_ADD_PERCENT: f32 = 0.1;
@@ -308,11 +308,13 @@ impl Palette {
         Texture2D::from_image(&image)
     }   
 
-    pub fn get_full_palette(&self, width: f32, height: f32, max_iterations: f32) -> Texture2D {
+    pub fn get_full_palette(&self, width: f32, height: f32) -> Texture2D {
         let mut image = Image::gen_image_color(width as u16, height as u16, WHITE);
 
+        let max_iterations = self.palette_cache.len()-1;
+
         for i in 0..width as u32 { 
-            let iteration = max_iterations * (i as f32 / (width - 1.));
+            let iteration = max_iterations as f32 * (i as f32 / (width - 1.));
             for j in 0..height as u32 {
                 let colour = escape_time(iteration as f64, &self.palette_cache);
                 image.set_pixel(i, j, colour);
@@ -418,4 +420,11 @@ pub const CHERRY2: [Color; 13] = [
     Color {r: 156./255., g: 87./255., b: 115./255., a:1.0},
     PINK,
     WHITE,
+];
+pub const ROYAL: [Color; 5] = [
+    BLACK,
+    Color {r: 212.7/255., g: 156.3/255., b: 79.9/255., a: 1.},
+    WHITE,
+    Color {r: 70.9/255., g: 125.4/255., b: 255./255., a: 1.},
+    BLACK
 ];

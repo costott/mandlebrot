@@ -943,6 +943,10 @@ impl Layer {
         }
     }
 
+    pub fn default() -> Layer {
+        Layer::new(LayerType::Colour, LayerRange::OutSet, 0., Palette::default())
+    }
+
     fn set_range_constraint(&mut self, constraint: LayerRange) {
         match self.range_constraints {
             Some(ref mut v) => v.push(constraint),
@@ -980,11 +984,11 @@ impl Layer {
                 match (in_set, out_set) {
                     (false, false) => true,
                     (true, false) => {
-                        if self.layer_type.shading_layer() { range == LayerRange::InSet}
+                        if self.layer_type.shading_layer() { range == LayerRange::InSet }
                         else {range.layer_applies(true)}
                     },
                     (false, true) => {
-                        if self.layer_type.shading_layer() { range == LayerRange::InSet }
+                        if self.layer_type.shading_layer() { range == LayerRange::OutSet }
                         else {range.layer_applies(false)}
                     },
                     (true, true) => range == LayerRange::Both

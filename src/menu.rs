@@ -15,6 +15,11 @@ use super::{
 
 /// the proportion of the screen width taken over by the menu
 const MENU_SCREEN_PROPORTION: f32 = 0.25;
+// the next menu variables apply to all menus apart from the layer editor
+/// the proprotion of the screen width for the horizontal padding either size of the menu
+const MENU_HOR_PADDING: f32 = MENU_SCREEN_PROPORTION/50.;
+/// the proportion of the screen height for the vertical padding in menus
+const MENU_VERT_PADDING: f32 = 1./50.;
 
 const HOVER_WHITE_OVERLAY: Color =  Color { r: 1., g: 1., b: 1., a: 0.3};
 const HOVER_BLACK_OVERLAY: Color = Color { r: 0., g: 0., b: 0., a: 0.3};
@@ -30,18 +35,23 @@ const STATE_TEXT_PADDING_PROPORTION: f32 = 1./50.;
 /// proportion of the screen width for the size of the state text
 const STATE_TEXT_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/10.;
 
-/// proportion of the screen width for the size of the menu text
-const TEXTBOX_LABEL_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/20.;
-/// proportion of the screen width for the padding before and after the text box label
-const TEXTBOX_LABEL_WIDTH_PADDING_PROPORTION: f32 = MENU_SCREEN_PROPORTION/100.;
-/// proportion of the screen height for the height of the text boxes
-const TEXTBOX_HEIGHT_PROPORTION: f32 = 1./20.;
-/// proportion of the screen height for the y value of the the first text box
-const TEXTBOX_START_Y_PROPORTION: f32 = 0.2;
-/// proportion of the screen height for the padding between text boxes
-const TEXTBOX_HEIGHT_PADDING_PROPORTION: f32 = TEXTBOX_HEIGHT_PROPORTION/4.;
-/// proportion of the screen height for the border of text boxes
-const TEXTBOX_BORDER_PROPORTION: f32 = TEXTBOX_HEIGHT_PROPORTION/20.;
+/// the proportion of the screen width for the start value of the default input boxes
+const DEFAULT_INPUT_BOX_START_X: f32 = MENU_SCREEN_PROPORTION*0.4;
+/// proportion of the screen height for the height of the default input boxes
+const DEFAULT_INPUT_BOX_HEIGHT: f32 = 1./20.;
+/// proportion of the screen height for the size of the default input box borders
+const DEFAULT_INPUT_BOX_BORDER_SIZE: f32 = DEFAULT_INPUT_BOX_HEIGHT/20.;
+/// propotion of the screen height for the padding between the default input boxes
+const DEFAULT_INPUT_BOX_VERT_PADDING: f32 = DEFAULT_INPUT_BOX_HEIGHT/4.;
+/// proportion of the screen width for the size of the default input box label text
+const DEFAULT_INPUT_BOX_LABEL_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/20.;
+/// proportion of the screen width for the padding between the defualt input box labels and boxes
+const DEFAULT_INPUT_BOX_LABEL_PADDING: f32 = MENU_SCREEN_PROPORTION/100.;
+/// proportion of the screen width for the size of the default input box content text
+const DEFAULT_INPUT_BOX_CONTENT_FONT_PROPORTION: f32 = DEFAULT_INPUT_BOX_LABEL_FONT_PROPORTION;
+/// proportion of the screen width for the padding between the left of the input box content and the border
+const DEFAULT_INPUT_BOX_CONTENT_HOR_PADDING: f32 = MENU_SCREEN_PROPORTION/100.;
+
 /// proportion of the screen width for the padding on the right of text boxes
 const TEXTBOX_RIGHT_PADDING: f32 = MENU_SCREEN_PROPORTION/50.;
 /// proportion of the screen width for the padding between the text box and content inside
@@ -87,6 +97,8 @@ const LAYERMANAGER_STRENGTH_TEXT_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/2
 const LAYERMANAGER_EDIT_BUTTON_BORDER_HEIGHT: f32 = LAYERMANAGER_PALETTE_HEIGHT_PROPORTION/30.;
 /// propotion of the screen width for the size of the layer range font
 const LAYERMANAGER_LAYER_RANGE_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/30.;
+/// proportion of the screen width for the padding between the border of the layer range box and the contents
+const LAYERMANAGER_LAYER_RANGE_CONTENT_HOR_PADDING: f32 = MENU_SCREEN_PROPORTION/100.;
 /// proportion of the screen height for the size of the exit button
 const LAYERMANAGER_DELETE_BUTTON_SIZE: f32 = LAYERMANAGER_HEIGHT/6.;
 
@@ -94,10 +106,6 @@ const LAYERMANAGER_DELETE_BUTTON_SIZE: f32 = LAYERMANAGER_HEIGHT/6.;
 const LAYEREDITOR_CAROUSEL_HEIGHT: f32 = 1./15.;
 /// proportion of the screen width for the size of the layer carousel
 const LAYEREDITOR_CAROUSEL_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/15.;
-/// proportion of the screen width for the size of the layer carousel
-const LAYEREDITOR_INPUT_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/20.;
-/// proportion of the screen width for the start of the text boxes in the layer editor menu
-const LAYEREDITOR_TEXTBOX_START_X: f32 = MENU_SCREEN_PROPORTION*0.3;
 /// proportion of the screen height for the vertical padding around the type text box
 const LAYEREDITOR_INPUT_BOX_VERT_PADDING: f32 = 1./50.;
 /// proportion of the screen height for the bar at the top of the specific menu
@@ -221,14 +229,24 @@ fn translate_rect(rect: &mut Rect, translate: (f32, f32)) {
 }
 
 /// Returns a new `Rect` representing the given `Rect` after
-/// being stretched by a scale factor of scale at each border
-fn inflate_rect(rect: &Rect, scale: f32) -> Rect {
+/// being stretched by a size at each border
+fn inflate_rect(rect: &Rect, size: f32) -> Rect {
     Rect::new(
-        rect.x - scale,
-        rect.y - scale,
-        rect.w + 2. * scale,
-        rect.h + 2. * scale
+        rect.x - size,
+        rect.y - size,
+        rect.w + 2. * size,
+        rect.h + 2. * size
     )
+}
+
+fn draw_rect(rect: &Rect, colour: Color) {
+    draw_rectangle(rect.x, rect.y, rect.w, rect.h, colour);
+}
+
+/// returns the y position of the bottom of the navbar
+fn navbar_bottom() -> f32 {
+    screen_height()*(NAVBAR_HEIGHT_PROPORTION+2.*STATE_TEXT_PADDING_PROPORTION) + 
+        screen_width()*STATE_TEXT_FONT_PROPORTION
 }
 
 enum MenuSignal {
@@ -535,6 +553,7 @@ trait ButtonElement: ButtonElementClone {
     /// lower draw order => drawn first
     fn get_draw_order(&self) -> usize;
     fn refresh_gradient(&mut self, _visualiser: &Visualiser) {}
+    fn gradient_change_layer_i(&mut self, _layer_i: usize) {}
 }
 
 trait ButtonElementClone {
@@ -643,6 +662,10 @@ impl ButtonElement for ButtonGradientElement {
             None => get_back_gradient(visualiser, self.screen_rect.x as u16, self.screen_rect.w as u16, self.screen_rect.h as u16),
             Some(i) => visualiser.layers.layers[*i].palette.get_full_gradient(self.screen_rect.w, self.screen_rect.h)
         };
+    }
+
+    fn gradient_change_layer_i(&mut self, layer_i: usize) {
+        self.layer_i = Some(layer_i);
     }
 }
 
@@ -882,29 +905,287 @@ impl NavbarButton {
     }
 }
 
+/// a box for data input elements to use
 #[derive(Clone)]
-struct DataInfo {
-    content: String,
-    content_dims: TextDimensions,
-    content_params: TextParams,
-    letters: usize,
-    letter_width: f32
+struct InputBox {
+    /// a rectangle which contains the whole input box
+    outer_rect: Rect,
+    /// a rectangle which contains the input box inside the border
+    inner_rect: Rect,
+    border_size: f32
 }
-impl DataInfo {
-    fn new(data: &str, content_params: TextParams) -> DataInfo {
-        let content = data.to_owned();
-        let content_dims = measure_text(&content, Some(content_params.font), 
-            content_params.font_size, 1.0);
-        let letters = content.chars().count();
-        let letter_width = content_dims.width / letters as f32;
-        DataInfo { content, content_params, content_dims, letters, letter_width }
+impl InputBox {
+    #[allow(unused)]
+    /// the x, y, width, and height are all for the outer rect
+    fn new(x: f32, y: f32, width: f32, height: f32, border_size: f32) -> InputBox {
+        let outer_rect = Rect::new(x, y, width, height);
+        InputBox::from_outer_rect(outer_rect, border_size)
     }
 
-    fn remeasure(&mut self) {
-        self.content_dims = measure_text(&self.content, Some(self.content_params.font), 
-            self.content_params.font_size, 1.0);
-        self.letters = self.content.chars().count();
-        self.letter_width = self.content_dims.width / self.letters as f32;
+    fn from_outer_rect(outer_rect: Rect, border_size: f32) -> InputBox {
+        let inner_rect = inflate_rect(&outer_rect, -border_size);
+        InputBox { outer_rect, inner_rect, border_size }
+    }
+
+    fn move_to(&mut self, new_topleft: (f32, f32)) {
+        self.outer_rect.move_to(new_topleft.into());
+        *self = InputBox::from_outer_rect(self.outer_rect, self.border_size);
+    }
+
+    fn translate(&mut self, translate: (f32, f32)) {
+        translate_rect(&mut self.outer_rect, translate);
+        *self = InputBox::from_outer_rect(self.outer_rect, self.border_size);
+    }
+
+    fn get_gradient(&self, visualiser: &Visualiser) -> Texture2D {
+        get_back_gradient(
+            visualiser, 
+            self.outer_rect.x as u16, 
+            self.outer_rect.w as u16, 
+            self.outer_rect.h as u16
+        )
+    }
+
+    /// get the next vertical input box 
+    fn next_vert(&self, vert_padding: f32, down: bool) -> InputBox {
+        let mut outer_rect = self.outer_rect.clone();
+        outer_rect.move_to(Vec2::new(
+            self.outer_rect.x,
+            match down {
+                true => self.outer_rect.bottom() + vert_padding,
+                false => self.outer_rect.y - self.outer_rect.h - vert_padding
+            }
+        ));
+        InputBox::from_outer_rect(outer_rect, self.border_size)
+    }
+
+    /// get the next vertial input box by jumping a given amount of space
+    fn skip_space_vert(&self, skip_size: f32, down: bool) -> InputBox {
+        let mut outer_rect = self.outer_rect.clone();
+        outer_rect.move_to(Vec2::new(
+            self.outer_rect.x,
+            match down {
+                true => self.outer_rect.bottom() + skip_size,
+                false => self.outer_rect.y - self.outer_rect.h - skip_size
+            }
+        ));
+        InputBox::from_outer_rect(outer_rect, self.border_size)
+    }
+    
+    #[allow(unused)]
+    /// get the next horizontal input box
+    fn next_hor(&self, hor_padding: f32, right: bool) -> InputBox {
+        let mut outer_rect = self.outer_rect.clone();
+        outer_rect.move_to(Vec2::new(
+            match right {
+                true => self.outer_rect.right() + hor_padding,
+                false => self.outer_rect.x - self.outer_rect.w - hor_padding
+            },
+            self.outer_rect.y
+        ));
+        InputBox::from_outer_rect(outer_rect, self.border_size)
+    }
+}
+
+/// a box for data input elements to use,
+/// that has a border with a gradient
+#[derive(Clone)] // avoid as best as possible due to gradient
+struct GradientInputBox {
+    input_box: InputBox,
+    gradient: Texture2D
+}
+impl GradientInputBox {
+    fn new(visualiser: &Visualiser, x: f32, y: f32, width: f32, height: f32, border_size: f32) -> GradientInputBox {
+        let outer_rect = Rect::new(x, y, width, height);
+        GradientInputBox::from_outer_rect(visualiser, outer_rect, border_size)
+    }
+
+    fn from_input_box(visualiser: &Visualiser, input_box: InputBox) -> GradientInputBox {
+        // creates a new one instead of cloning as cloning creates memory leaks
+        // that are a hassle to fix
+        let gradient = input_box.get_gradient(visualiser);
+        GradientInputBox { input_box, gradient }
+    }
+
+    fn from_outer_rect(visualiser: &Visualiser, outer_rect: Rect, border_size: f32) -> GradientInputBox {
+        let input_box = InputBox::from_outer_rect(outer_rect, border_size);
+        GradientInputBox::from_input_box(visualiser, input_box)
+    }
+
+    /// an input box for most input boxes, with a given y value
+    fn default(visualiser: &Visualiser, y: f32) -> GradientInputBox {
+        let start_x = screen_width()*DEFAULT_INPUT_BOX_START_X;
+        let outer_rect = Rect::new(
+            start_x,
+            y,
+            screen_width()*(MENU_SCREEN_PROPORTION - 2.*MENU_HOR_PADDING) - start_x,
+            screen_height()*DEFAULT_INPUT_BOX_HEIGHT
+        );
+        GradientInputBox::from_outer_rect(visualiser, outer_rect, screen_height()*DEFAULT_INPUT_BOX_BORDER_SIZE)
+    }
+
+    /// a default input box at the top of the menu
+    fn default_top(visualiser: &Visualiser) -> GradientInputBox {
+        GradientInputBox::default(visualiser, navbar_bottom()+screen_height()*MENU_VERT_PADDING)
+    }
+
+    fn sealed_clone(&self, visualiser: &Visualiser) -> GradientInputBox {
+        GradientInputBox::from_input_box(visualiser, self.input_box.clone())
+    }
+
+    fn outer_rect(&self) -> Rect {
+        self.input_box.outer_rect
+    }
+
+    fn inner_rect(&self) -> Rect {
+        self.input_box.inner_rect
+    }
+
+    fn border_size(&self) -> f32 {
+        self.input_box.border_size
+    }
+
+    fn move_to(&mut self, new_topleft: (f32, f32), visualiser: &Visualiser) {
+        self.input_box.move_to(new_topleft);
+        Texture2D::delete(&self.gradient);
+        *self = GradientInputBox::from_input_box(visualiser, self.input_box.clone());
+    } 
+
+    fn translate(&mut self, translate: (f32, f32), visualiser: &Visualiser) {
+        self.input_box.translate(translate);
+        Texture2D::delete(&self.gradient);
+        *self = GradientInputBox::from_input_box(visualiser, self.input_box.clone())
+    }
+
+    fn next_vert(&self, visualiser: &Visualiser, vert_padding: f32, down: bool) -> GradientInputBox {
+        GradientInputBox::from_input_box(visualiser, self.input_box.next_vert(vert_padding, down))
+    }
+
+    fn skip_space_vert(&self, visualiser: &Visualiser, skip_size: f32, down: bool) -> GradientInputBox {
+        GradientInputBox::from_input_box(visualiser, self.input_box.skip_space_vert(skip_size, down))
+    }
+
+    fn draw_gradient(&self) {
+        draw_texture(self.gradient, self.input_box.outer_rect.x, self.input_box.outer_rect.y, WHITE);
+    }
+
+    fn draw(&self, selected_shade: Option<Color>) {
+        self.draw_gradient();
+        if let Some(shade) = selected_shade {
+            draw_rect(&self.input_box.outer_rect, shade);
+        }
+        draw_rect(&self.input_box.inner_rect, BLACK);
+    }
+
+    fn refresh_gradient(&mut self, visualiser: &Visualiser) {
+        Texture2D::delete(&self.gradient);
+        self.gradient = self.input_box.get_gradient(visualiser);
+    }
+}
+
+enum RectAlign {
+    Centre,
+    Left(bool),
+    Right(bool),
+    Top(bool),
+    Bottom(bool)
+}
+impl RectAlign {
+    fn get_topleft(alignment: RectAlign, rect: &Rect, container: &InputBox) -> (f32, f32) {
+        todo!()
+    }
+}
+
+/// alignement of text relative to a text box
+/// 
+/// the boolean represents if it's inside (true) or outside (false) the input box.
+/// inside => positioned relative to the inner rect of the input box
+/// outside => positioned relative to the outer rect of the input box
+#[derive(Clone, Copy)]
+#[allow(unused)]
+enum TextAlign {
+    Centre,
+    Left(bool),
+    Right(bool),
+    Top(bool),
+    Bottom(bool),
+    StartX(f32)
+}
+impl TextAlign {
+    fn centre_x(label: &InputLabel, container: &InputBox) -> f32 {
+        container.outer_rect.center().x - label.label_dims.width/2.
+    }
+    
+    fn centre_y(label: &InputLabel, container: &InputBox) -> f32 {
+        container.outer_rect.center().y + label.label_dims.height/2.
+    }
+
+    fn pos_centre(label: &InputLabel, container: &InputBox) -> (f32, f32) {
+        (TextAlign::centre_x(label, container),TextAlign::centre_y(label, container))
+    }
+
+    fn pos_outer_left(label: &InputLabel, container: &InputBox) -> (f32, f32) {
+        (container.outer_rect.x - label.label_dims.width - label.padding,
+         TextAlign::centre_y(label, container))
+    }
+
+    fn pos_inner_left(label: &InputLabel, container: &InputBox) -> (f32, f32) {
+        (container.inner_rect.x + label.padding,
+         TextAlign::centre_y(label, container))
+    }
+
+    fn pos_outer_right(label: &InputLabel, container: &InputBox) -> (f32, f32) {
+        (container.outer_rect.right() + label.padding,
+         TextAlign::centre_y(label, container))
+    }
+
+    fn pos_inner_right(label: &InputLabel, container: &InputBox) -> (f32, f32) {
+        (container.inner_rect.right() - label.label_dims.width - label.padding,
+         TextAlign::centre_y(label, container))
+    }
+
+    fn pos_outer_top(label: &InputLabel, container: &InputBox) -> (f32, f32) {
+        (TextAlign::centre_x(label, container),
+         container.outer_rect.y - label.padding)
+    }
+
+    fn pos_inner_top(label: &InputLabel, container: &InputBox) -> (f32, f32) {
+        (TextAlign::centre_x(label, container),
+         container.inner_rect.y + label.label_dims.height + label.padding)
+    }
+
+    fn pos_outer_bottom(label: &InputLabel, container: &InputBox) -> (f32, f32) {
+        (TextAlign::centre_x(label, container),
+         container.outer_rect.bottom() + label.label_dims.height + label.padding)
+    }
+
+    fn pos_inner_bottom(label: &InputLabel, container: &InputBox) -> (f32, f32) {
+        (TextAlign::centre_x(label, container),
+         container.inner_rect.bottom() - label.padding)
+    }
+
+    fn pos_start_x(label: &InputLabel, container: &InputBox, start_x: f32) -> (f32, f32) {
+        (start_x, TextAlign::centre_y(label, container))
+    }
+
+    fn draw(&self, label: &InputLabel, container: &InputBox) {
+        let pos = match self {
+            TextAlign::Centre => TextAlign::pos_centre(label, container),
+            TextAlign::Left(false) => TextAlign::pos_outer_left(label, container),
+            TextAlign::Left(true) => TextAlign::pos_inner_left(label, container),
+            TextAlign::Right(false) => TextAlign::pos_outer_right(label, container),
+            TextAlign::Right(true) => TextAlign::pos_inner_right(label, container),
+            TextAlign::Top(false) => TextAlign::pos_outer_top(label, container),
+            TextAlign::Top(true) => TextAlign::pos_inner_top(label, container),
+            TextAlign::Bottom(false) => TextAlign::pos_outer_bottom(label, container),
+            TextAlign::Bottom(true) => TextAlign::pos_inner_bottom(label, container),
+            TextAlign::StartX(start_x) => TextAlign::pos_start_x(label, container, *start_x)
+        };
+        draw_text_ex(
+            &label.text, 
+            pos.0, pos.1,
+            label.label_params.clone()
+        );
     }
 }
 
@@ -913,11 +1194,15 @@ impl DataInfo {
 struct InputLabel {
     text: String,
     label_dims: TextDimensions,
-    label_params: TextParams
+    label_params: TextParams,  
+    padding: f32,
+    alignment: TextAlign,
+    /// whether or not the colour is dependent on the gradient
+    gradient_colour: bool
 }
 impl InputLabel {
-    fn new(text: &str, font: Font, font_size: f32, color: Color) -> InputLabel {
-        let params = TextParams { font, font_size: font_size as u16,  color, ..Default::default()};
+    fn new(text: &str, font: Font, font_size: f32, color: Color, gradient_colour: bool, padding: f32, alignment: TextAlign) -> InputLabel {
+        let params = TextParams { font, font_size: font_size as u16, color, ..Default::default()};
         let measure = measure_text(
             text, 
             Some(font),
@@ -928,22 +1213,101 @@ impl InputLabel {
         InputLabel { 
             text: String::from(text), 
             label_dims: measure,
-            label_params: params 
+            label_params: params,
+            padding,
+            alignment,
+            gradient_colour
+        }
+    }
+
+    fn change_text(&mut self, new_text: &str) {
+        self.text = new_text.to_owned();
+        self.label_dims = measure_text(
+            new_text, 
+            Some(self.label_params.font), 
+            self.label_params.font_size, 
+            self.label_params.font_scale
+        );
+    }
+
+    fn default_input_box_content(font: Font) -> InputLabel {
+        InputLabel::new(
+            "e", 
+            font, 
+            screen_width() * DEFAULT_INPUT_BOX_CONTENT_FONT_PROPORTION,
+            WHITE,
+            false,
+            screen_width() * DEFAULT_INPUT_BOX_CONTENT_HOR_PADDING,
+            TextAlign::Left(true),
+        )
+    }
+
+    fn default_input_box_label(visualiser: &Visualiser, font: Font, text: &str, gradient_colour: bool) -> Option<InputLabel> {
+        let colour = match gradient_colour {
+            true => {
+                let gradient = GradientInputBox::default_top(visualiser).gradient;
+                let colour = get_brightest_colour(gradient);
+                Texture2D::delete(&gradient);
+                colour
+            },
+            false => WHITE
+        };
+        
+        Some(InputLabel::new(
+            text, 
+            font, 
+            screen_width() * DEFAULT_INPUT_BOX_LABEL_FONT_PROPORTION,
+            colour,
+            gradient_colour,
+            screen_width() * DEFAULT_INPUT_BOX_LABEL_PADDING,
+            TextAlign::StartX(screen_width() * MENU_HOR_PADDING),
+        ))
+    }
+
+    fn draw(&self, container: &InputBox) {
+        self.alignment.draw(&self, container);
+    }
+
+    fn refresh_gradient(&mut self, colour: Color) {
+        if self.gradient_colour {
+            self.label_params.color = colour;
         }
     }
 }
 
-// TODO: generalise data input types so they all require similar parameters
+#[derive(Clone)]
+struct DataInfo {
+    content: String,
+    content_dims: TextDimensions,
+    content_params: TextParams,
+    letters: usize
+}
+impl DataInfo {
+    fn new(data: &str, content_label: &InputLabel) -> DataInfo {
+        let content = data.to_owned();
+        let letters = content.chars().count();
+        DataInfo { 
+            content, 
+            content_dims: content_label.label_dims, 
+            content_params: content_label.label_params, 
+            letters,  
+        }
+    }
+
+    fn remeasure(&mut self) {
+        self.content_dims = measure_text(&self.content, Some(self.content_params.font), 
+            self.content_params.font_size, 1.0);
+        self.letters = self.content.chars().count();
+    }
+}
 
 #[derive(Clone)]
 struct TextBox {
     label: Option<InputLabel>,
     data: String,
     data_info: DataInfo,
-    border_back: Texture2D,
-    outer_rect: Rect,
-    inner_rect: Rect,
-    content_params: TextParams,
+    grad_input_box: GradientInputBox,
+    content_label: InputLabel,
     selected: bool,
     selected_shade: Color,
     start_pos: usize,
@@ -953,24 +1317,17 @@ struct TextBox {
 }
 impl TextBox {
     fn new(
-        visualiser: &Visualiser,
+        input_box: GradientInputBox,
         label: Option<InputLabel>,
-        default_data: String,
-        width: f32, 
-        height: f32,
-        start_x: u16, start_y: f32, 
-        content_params: TextParams
+        content_label: InputLabel,
+        default_data: &str
     ) -> TextBox {
-        let outer_rect = Rect::new(start_x as f32, start_y, width, height);
-        let border_width = screen_height() * TEXTBOX_BORDER_PROPORTION;
         TextBox {
             label, 
-            data: default_data.to_owned(),
-            data_info: DataInfo::new(&default_data, content_params),
-            border_back: get_back_gradient(visualiser, outer_rect.x as u16, outer_rect.w as u16, outer_rect.h as u16),
-            outer_rect,
-            inner_rect: inflate_rect(&outer_rect, -border_width),
-            content_params,
+            data: String::from(default_data),
+            data_info: DataInfo::new(default_data, &content_label),
+            grad_input_box: input_box,
+            content_label,
             selected: false,
             selected_shade: Color::new(1., 1., 1., 0.5),
             start_pos: 0,
@@ -983,8 +1340,10 @@ impl TextBox {
     /// draw and update the text box
     fn update(&mut self, data: String) -> Option<String> {
         if !self.selected {
-            self.data = data.to_owned();
-            self.data_info = DataInfo::new(&data, self.content_params);
+            if self.data_info.content != data {  
+                self.data = data.clone();
+                self.data_info = DataInfo::new(&data, &self.content_label);
+            }
             self.start_pos = 0;
         }
 
@@ -992,6 +1351,8 @@ impl TextBox {
         let output = self.keyboard_entry();
         self.update_cursor();
 
+        // width of label never used so this is fine
+        self.content_label.text = self.data_info.content[self.start_pos..self.start_pos+self.get_to_use()].to_owned();
         self.draw();
 
         output
@@ -999,31 +1360,17 @@ impl TextBox {
 
     fn draw(&self) {
         if let Some(label) = &self.label {
-            draw_text_ex(
-                &label.text, 
-                self.outer_rect.x - label.label_dims.width - screen_width()*TEXTBOX_LABEL_WIDTH_PADDING_PROPORTION, 
-                self.outer_rect.y + self.outer_rect.h/2. + label.label_dims.height/2., 
-                label.label_params,
-            );
+            label.draw(&self.grad_input_box.input_box);
         }
-        draw_texture(self.border_back, self.outer_rect.x, self.outer_rect.y, WHITE);
-        if self.selected {
-            draw_rectangle(self.outer_rect.x, self.outer_rect.y, self.outer_rect.w, self.outer_rect.h, self.selected_shade);
-        }
-        draw_rectangle(self.inner_rect.x, self.inner_rect.y, self.inner_rect.w, self.inner_rect.h, BLACK);
-
-        draw_text_ex(
-            &self.data_info.content[self.start_pos..self.start_pos+self.get_to_use()],
-            self.inner_rect.x + screen_width()*TEXTBOX_CONTENT_PADDING,
-            self.inner_rect.y + self.inner_rect.h/2. + self.data_info.content_dims.height/2.,
-            self.content_params
-        );
+        self.grad_input_box.draw(if self.selected {Some(self.selected_shade)} else {None});
+       
+        self.content_label.draw(&self.grad_input_box.input_box);
         if self.selected && self.cursor_visible {
             draw_rectangle(
                 self.get_cursor_x(),
-                self.inner_rect.y + self.inner_rect.h / 10.,
+                self.grad_input_box.inner_rect().y + self.grad_input_box.inner_rect().h / 10.,
                 2.0,
-                self.inner_rect.h - self.inner_rect.h / 5.,
+                self.grad_input_box.inner_rect().h - self.grad_input_box.inner_rect().h / 5.,
                 WHITE
             );
         }
@@ -1031,32 +1378,32 @@ impl TextBox {
 
     fn get_to_use(&self) -> usize {
         let to_end = self.data_info.letters - self.start_pos;
-        for i in (0..=to_end).rev() {
+        for i in 0..=to_end {
             let measure = measure_text(
                 &self.data_info.content[self.start_pos..self.start_pos+i], 
                 Some(self.data_info.content_params.font), 
                 self.data_info.content_params.font_size, 
                 1.0
             );
-            if measure.width < self.inner_rect.w - 2.*screen_width()*TEXTBOX_CONTENT_PADDING {
-                return i;
+            if measure.width > self.grad_input_box.inner_rect().w - 2.*screen_width()*TEXTBOX_CONTENT_PADDING {
+                return i-1;
             }
         }
-        0
+        to_end
     }
 
     fn get_cursor_x(&self) -> f32 {
-        self.inner_rect.x + measure_text(
+        self.grad_input_box.inner_rect().x + measure_text(
             &self.data_info.content[self.start_pos..self.cursor_pos],
             Some(self.data_info.content_params.font), 
             self.data_info.content_params.font_size, 
             1.0
-        ).width + self.data_info.letter_width / 3.
+        ).width + self.content_label.label_dims.height/3.
     }
 
     fn check_clicked(&mut self) {
         if !is_mouse_button_pressed(MouseButton::Left) { return }
-        if !self.outer_rect.contains(Vec2::from(mouse_position())) { 
+        if !self.grad_input_box.outer_rect().contains(Vec2::from(mouse_position())) { 
             self.selected = false;
             return;    
         }
@@ -1073,7 +1420,7 @@ impl TextBox {
                 self.data_info.content_params.font_size, 
                 1.0
             );
-            if mouse_position().0 - self.inner_rect.x < measure.width {
+            if mouse_position().0 - self.grad_input_box.inner_rect().x < measure.width {
                 self.cursor_pos = i-1;
                 found = true;
                 break;
@@ -1149,14 +1496,15 @@ impl TextBox {
         }
     }
 
-    fn translate(&mut self, translate: (f32, f32)) {
-        translate_rect(&mut self.outer_rect, translate);
-        translate_rect(&mut self.inner_rect, translate);
+    fn translate(&mut self, translate: (f32, f32), visualiser: &Visualiser) {
+        self.grad_input_box.translate(translate, visualiser);
     }
 
     fn refresh_gradient(&mut self, visualiser: &Visualiser) {
-        Texture2D::delete(&self.border_back);
-        self.border_back = get_back_gradient(visualiser, self.outer_rect.x as u16, self.outer_rect.w as u16, self.outer_rect.h as u16)
+        self.grad_input_box.refresh_gradient(visualiser);
+        if let Some(label) = &mut self.label {
+            label.refresh_gradient(get_brightest_colour(self.grad_input_box.gradient));
+        }
     }
 }
 
@@ -1331,14 +1679,8 @@ impl Slider {
     }
 
     fn draw(&self) {
-        // draw label
         if let Some(label) = &self.label {
-            draw_text_ex(
-                &label.text, 
-                self.inflated_rect.x - label.label_dims.width * 1.1 - self.rect.h/2., 
-                self.rect.center().y + label.label_dims.height/2.,
-                label.label_params,
-            );
+            label.draw(&InputBox::from_outer_rect(self.rect, 0.))
         }
 
         // draw bar
@@ -1399,16 +1741,12 @@ pub trait DropDownType<T> {
 #[derive(Clone)]
 struct DropDown<T: DropDownType<T> + std::cmp::PartialEq + Clone> {
     variants: Vec<T>,
-    variant_font: Font,
-    variant_text_params: TextParams,
-    /// rect to contain the currently selected variant
-    closed_rect: Rect,
-    closed_back: Texture2D,
-    /// rect to contain the extra variants
-    open_rect: Rect,
-    open_back: Texture2D,
-    border_size: f32,
+    /// box to contain the currently selected variant
+    closed_grad_input_box: GradientInputBox,
+    /// box to contain the extra variants
+    open_grad_input_box: GradientInputBox,
     label: Option<InputLabel>,
+    content_label: InputLabel,
     arrow_image: Texture2D,
     open: bool,
     hovering: bool,
@@ -1417,38 +1755,36 @@ struct DropDown<T: DropDownType<T> + std::cmp::PartialEq + Clone> {
 impl<T: DropDownType<T> + std::cmp::PartialEq + Clone> DropDown<T> {
     async fn new(
         visualiser: &Visualiser, 
-        variant_font_size: u16,
-        closed_topleft: (f32, f32), 
-        closed_size: (f32, f32), 
-        border_size: f32,
-        label: Option<InputLabel>
+        closed_grad_input_box: GradientInputBox,
+        label: Option<InputLabel>,
+        content_label: InputLabel
     ) -> DropDown<T> {
-        let closed_rect = Rect::new(closed_topleft.0, closed_topleft.1, closed_size.0, closed_size.1);
-
         let variants = T::get_variants();
 
-        let variant_extension = closed_size.1 - border_size;
-        let extra_height = (variants.len()-1) as f32 * variant_extension;
-        let open_rect = Rect::new(
-            closed_topleft.0,
-            closed_topleft.1 + if closed_rect.bottom() + extra_height <= screen_height() 
-                { variant_extension } else { -extra_height },
-            closed_size.0,
-            extra_height + border_size
-        );
+        let open_rect = DropDown::get_open_rect(&closed_grad_input_box, &variants);
+        let open_grad_input_box = GradientInputBox::from_outer_rect(visualiser, open_rect, closed_grad_input_box.border_size());
 
-        let variant_font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
-        let variant_text_params = TextParams { font: variant_font, 
-            font_size: variant_font_size, color: WHITE, ..Default::default()};
-
-        DropDown { variants, closed_rect, open_rect, border_size, variant_font, variant_text_params, label,
-            closed_back: get_back_gradient(visualiser, closed_rect.x as u16, 
-                            closed_rect.w as u16, closed_rect.h as u16),
-            open_back: get_back_gradient(visualiser, open_rect.x as u16, 
-                            open_rect.w as u16, open_rect.h as u16),
+        DropDown {
+            variants, 
+            closed_grad_input_box, open_grad_input_box,
+            label, content_label,
             arrow_image: Texture2D::from_image(&load_image("assets/down.png").await.unwrap()),
             open: false, hovering: false, hover_index: 0
         }
+    }
+
+    fn get_open_rect(closed_grad_input_box: &GradientInputBox, variants: &Vec<T>) -> Rect {
+        let variant_extension = closed_grad_input_box.outer_rect().h - closed_grad_input_box.border_size();
+        let extra_height = (variants.len()-1) as f32 * variant_extension;
+        
+        Rect::new(
+            closed_grad_input_box.outer_rect().x,
+            closed_grad_input_box.outer_rect().y + 
+                if closed_grad_input_box.outer_rect().bottom() + extra_height <= screen_height() 
+                    { variant_extension } else { -extra_height },
+            closed_grad_input_box.outer_rect().w,
+            extra_height+closed_grad_input_box.border_size()
+        )
     }
 
     /// updates + draws the dropdown 
@@ -1457,6 +1793,7 @@ impl<T: DropDownType<T> + std::cmp::PartialEq + Clone> DropDown<T> {
     /// None if the value wasn't changed
     /// Some(T) if changed
     fn update(&mut self, current_variant: &T) -> Option<T> {
+        self.content_label.change_text(&current_variant.get_string());
         self.draw(current_variant);
         if self.open {
             self.interact_open(current_variant)
@@ -1467,7 +1804,7 @@ impl<T: DropDownType<T> + std::cmp::PartialEq + Clone> DropDown<T> {
     }
 
     fn interact_closed(&mut self) {
-        if !self.closed_rect.contains(Vec2::from(mouse_position())) {
+        if !self.closed_grad_input_box.outer_rect().contains(Vec2::from(mouse_position())) {
             self.hovering = false;
             return;
         }
@@ -1479,8 +1816,8 @@ impl<T: DropDownType<T> + std::cmp::PartialEq + Clone> DropDown<T> {
     }
 
     fn interact_open(&mut self, current_variant: &T) -> Option<T> {
-        let closed_contain = self.closed_rect.contains(Vec2::from(mouse_position()));
-        let open_contain = self.open_rect.contains(Vec2::from(mouse_position()));
+        let closed_contain = self.closed_grad_input_box.outer_rect().contains(Vec2::from(mouse_position()));
+        let open_contain = self.open_grad_input_box.outer_rect().contains(Vec2::from(mouse_position()));
         if !(closed_contain || open_contain) {
             self.hovering = false;
             if is_mouse_button_pressed(MouseButton::Left) {
@@ -1493,7 +1830,7 @@ impl<T: DropDownType<T> + std::cmp::PartialEq + Clone> DropDown<T> {
         if closed_contain {
             self.hover_index = 0;
         } else {
-            self.hover_index = (((mouse_position().1 - self.open_rect.y).abs() / self.open_rect.h) *
+            self.hover_index = (((mouse_position().1 - self.open_grad_input_box.outer_rect().y).abs() / self.open_grad_input_box.outer_rect().h) *
                 (self.variants.len()-1) as f32).ceil() as usize;
         }
 
@@ -1509,127 +1846,88 @@ impl<T: DropDownType<T> + std::cmp::PartialEq + Clone> DropDown<T> {
     }
 
     fn draw(&mut self, current_variant: &T) {
-        // draw closed
-        draw_texture(self.closed_back, self.closed_rect.x, self.closed_rect.y, WHITE);
-        let closed_inner_height = self.closed_rect.h - 2.*self.border_size;
-        draw_rectangle(
-            self.closed_rect.x + self.border_size, 
-            self.closed_rect.y + self.border_size, 
-            self.closed_rect.w - 2.*self.border_size, 
-            closed_inner_height, 
-            BLACK
-        );
-        let current_string = current_variant.get_string();
-        let measure = measure_text(
-            &current_string, 
-            Some(self.variant_font), 
-            self.variant_text_params.font_size, self.variant_text_params.font_scale
-        );
-        let text_x = self.closed_rect.x + self.border_size + self.closed_rect.w/100.;
-        draw_text_ex(
-            &current_string, 
-            text_x, 
-            self.closed_rect.y + self.border_size + self.closed_rect.h/2. + measure.height*0.25, 
-            self.variant_text_params
-        );
+        self.closed_grad_input_box.draw(None);
+
+        self.content_label.draw(&self.closed_grad_input_box.input_box);
+
+        let arrow_size =  self.closed_grad_input_box.inner_rect().h;
+
         if !self.open { 
             draw_texture_ex(
-                self.arrow_image, 
-                self.closed_rect.right() - self.border_size - closed_inner_height, 
-                self.closed_rect.y + self.border_size, 
-                WHITE, 
+                self.arrow_image,
+                self.closed_grad_input_box.inner_rect().right() - arrow_size,
+                self.closed_grad_input_box.inner_rect().y,
+                WHITE,
                 DrawTextureParams { 
-                    dest_size: Some(Vec2::new(closed_inner_height, closed_inner_height)), 
+                    dest_size: Some(Vec2::new(arrow_size, arrow_size)), 
                     ..Default::default() 
                 }
             );
         }
         if self.hovering && (!self.open || self.hover_index == 0) {
-            draw_rectangle(self.closed_rect.x, self.closed_rect.y, 
-                self.closed_rect.w, self.closed_rect.h, HOVER_WHITE_OVERLAY);
+            draw_rect(&self.closed_grad_input_box.outer_rect(), HOVER_WHITE_OVERLAY);
         }
 
         if let Some(label) = &self.label {
-            draw_text_ex(
-                &label.text, 
-                self.closed_rect.x - label.label_dims.width - screen_width()*TEXTBOX_LABEL_WIDTH_PADDING_PROPORTION, 
-                self.closed_rect.y + self.closed_rect.h/2. + label.label_dims.height/2., 
-                label.label_params,
-            );
+            label.draw(&self.closed_grad_input_box.input_box);
         }
 
         if !self.open { return }
 
         // draw open
         draw_texture_ex(
-            self.arrow_image, 
-            self.closed_rect.right() - self.border_size - closed_inner_height, 
-            self.closed_rect.y + self.border_size, 
-            WHITE, 
+            self.arrow_image,
+            self.closed_grad_input_box.inner_rect().right() - arrow_size,
+            self.closed_grad_input_box.inner_rect().y,
+            WHITE,
             DrawTextureParams { 
-                dest_size: Some(Vec2::new(closed_inner_height, closed_inner_height)), 
+                dest_size: Some(Vec2::new(arrow_size, arrow_size)), 
                 flip_y: true,
                 ..Default::default() 
             }
         );
 
-        draw_texture(self.open_back, self.open_rect.x, self.open_rect.y, WHITE);
+        self.open_grad_input_box.draw_gradient();
         let non_current: Vec<&T> = self.variants.iter().filter(|x| **x != *current_variant).collect();
         for i in 0..non_current.len() {
-            let container = Rect::new(
-                self.open_rect.x + self.border_size, 
-                self.open_rect.y + self.border_size + i as f32 * (self.closed_rect.h - self.border_size), 
-                self.open_rect.w - 2.*self.border_size, 
-                self.closed_rect.h - 2.*self.border_size, 
-            );
-            draw_rectangle(container.x, container.y, container.w, container.h, BLACK);
+            let mut container = self.open_grad_input_box.inner_rect().clone();
+            let index_y_add = i as f32 * ( self.closed_grad_input_box.outer_rect().h - self.closed_grad_input_box.border_size());
+            container.y += index_y_add;
+            container.h = self.closed_grad_input_box.inner_rect().h;
+            draw_rect(&container, BLACK);
             
-            let variant_string = non_current[i].get_string();
-            let measure = measure_text(
-                &variant_string, 
-                Some(self.variant_font), 
-                self.variant_text_params.font_size, self.variant_text_params.font_scale
-            );
+            let mut label = self.content_label.clone();
+            label.change_text(&non_current[i].get_string());
             draw_text_ex(
-                &variant_string, 
-                text_x,
-                container.y + container.h/2. + measure.height/2., 
-                self.variant_text_params
+                &label.text, 
+                container.x + label.padding,
+                container.center().y + label.label_dims.height/2., 
+                label.label_params
             );
             if self.hovering && i+1 == self.hover_index {
                 draw_rectangle(
-                    self.open_rect.x, 
-                    self.open_rect.y + i as f32 * (self.closed_rect.h - self.border_size), 
-                    self.open_rect.w, 
-                    self.closed_rect.h, 
+                    self.open_grad_input_box.outer_rect().x, 
+                    self.open_grad_input_box.outer_rect().y + index_y_add, 
+                    self.open_grad_input_box.outer_rect().w, 
+                    self.closed_grad_input_box.outer_rect().h, 
                     HOVER_WHITE_OVERLAY
                 );
             }
         }
     }
 
-    fn translate(&mut self, translate: (f32, f32)) {
-        translate_rect(&mut self.closed_rect, translate);
-
-        let variant_extension = self.closed_rect.h - self.border_size;
-        let extra_height = (self.variants.len()-1) as f32 * variant_extension;
-        self.open_rect = Rect::new(
-            self.closed_rect.x,
-            self.closed_rect.y + if self.closed_rect.bottom() + extra_height <= screen_height() 
-                { variant_extension } else { -extra_height },
-            self.closed_rect.w,
-            extra_height + self.border_size
-        );
+    fn translate(&mut self, translate: (f32, f32), visualiser: &Visualiser) {
+        self.closed_grad_input_box.translate(translate, visualiser);
+        let open_rect = DropDown::get_open_rect(&self.closed_grad_input_box, &self.variants);
+        self.open_grad_input_box.move_to(open_rect.point().into(), visualiser);
     }
 
     fn refresh_gradient(&mut self, visualiser: &Visualiser) {
-        Texture2D::delete(&self.closed_back);
-        Texture2D::delete(&self.open_back);
-
-        self.closed_back = get_back_gradient(visualiser, self.closed_rect.x as u16, 
-            self.closed_rect.w as u16, self.closed_rect.h as u16);
-        self.open_back = get_back_gradient(visualiser, self.open_rect.x as u16, 
-            self.open_rect.w as u16, self.open_rect.h as u16);
+        self.closed_grad_input_box.refresh_gradient(visualiser);
+        self.open_grad_input_box.refresh_gradient(visualiser);
+        if let Some(label) = &mut self.label {
+            label.refresh_gradient(get_brightest_colour(self.closed_grad_input_box.gradient));
+        }
     }
 }
 
@@ -1639,12 +1937,9 @@ trait CarouselType {
 
 #[derive(Clone)]
 struct Carousel {
-    variant_font: Font,
-    variant_text_params: TextParams,
     /// rect to contain the currently selected variant
-    rect: Rect,
-    back: Texture2D,
-    border_size: f32,
+    grad_input_box: GradientInputBox,
+    content_label: InputLabel,
     left_arrow_rect: Rect,
     right_arrow_rect: Rect,
     right_arrow_image: Texture2D,
@@ -1652,24 +1947,12 @@ struct Carousel {
 }
 impl Carousel {
     async fn new(
-        visualiser: &Visualiser,
-        font_size: u16,
-        topleft: (f32, f32),
-        size: (f32, f32),
-        border_size: f32
+        grad_input_box: GradientInputBox,
+        content_label: InputLabel
     ) -> Carousel {
-        let outer_rect = Rect::new(topleft.0, topleft.1, size.0, size.1);
-        let inner_rect = inflate_rect(&outer_rect, -border_size);
-
-        let variant_font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
-        let variant_text_params = TextParams { font: variant_font, 
-            font_size: font_size, color: WHITE, ..Default::default()};
-
+        let inner_rect = grad_input_box.inner_rect();
         Carousel {
-            variant_font, variant_text_params, 
-            rect: outer_rect,
-            back: get_back_gradient(visualiser, outer_rect.x as u16, outer_rect.w as u16, outer_rect.h as u16),
-            border_size, 
+            grad_input_box, content_label,
             left_arrow_rect: Rect::new(inner_rect.x, inner_rect.y, inner_rect.h, inner_rect.h),
             right_arrow_rect: Rect::new(inner_rect.right()-inner_rect.h, inner_rect.y, inner_rect.h, inner_rect.h),
             right_arrow_image:  Texture2D::from_image(&load_image("assets/forward.png").await.unwrap()),
@@ -1686,7 +1969,8 @@ impl Carousel {
         let allowed_left = index > 0;
         let allowed_right = index < variants.len()-1;
 
-        self.draw(&variants[index], allowed_left, allowed_right);
+        self.content_label.change_text(&variants[index].get_string());
+        self.draw(allowed_left, allowed_right);
 
         self.mouse_interact(index, allowed_left, allowed_right)
     }
@@ -1712,31 +1996,13 @@ impl Carousel {
         }
     }
 
-    fn draw<T: CarouselType>(&self, current_variant: &T, allowed_left: bool, allowed_right: bool) {
-        draw_texture(self.back, self.rect.x, self.rect.y, WHITE);
-        draw_rectangle(
-            self.rect.x + self.border_size,
-            self.rect.y + self.border_size,
-            self.rect.w - 2.*self.border_size,
-            self.rect.h - 2.*self.border_size,
-            BLACK
-        );
+    fn draw(&self, allowed_left: bool, allowed_right: bool) {
+        self.grad_input_box.draw(None);
 
-        let current_string = current_variant.get_string();
-        let measure = measure_text(
-            &current_string, 
-            Some(self.variant_font), 
-            self.variant_text_params.font_size, self.variant_text_params.font_scale
-        );
-        draw_text_ex(
-            &current_string, 
-            self.rect.center().x - measure.width/2., 
-            self.rect.center().y + measure.height/2.,
-            self.variant_text_params
-        );
+        self.content_label.draw(&self.grad_input_box.input_box);
 
         if self.hovering {
-            draw_rectangle(self.rect.x, self.rect.y, self.rect.w, self.rect.h, HOVER_WHITE_OVERLAY);
+            draw_rect(&self.grad_input_box.outer_rect(), HOVER_WHITE_OVERLAY);
         }
 
         if allowed_left {
@@ -1759,8 +2025,7 @@ impl Carousel {
     }
 
     fn refresh_gradient(&mut self, visualiser: &Visualiser) {
-        Texture2D::delete(&self.back);
-        self.back = get_back_gradient(visualiser, self.rect.x as u16, self.rect.w as u16, self.rect.h as u16);
+        self.grad_input_box.refresh_gradient(visualiser);
     }
 }
 
@@ -1849,38 +2114,6 @@ trait MenuType {
     fn refresh_gradients(&mut self, visualiser: &Visualiser);
 }
 
-/// generates the text boxes for the general menu
-struct GeneralMenuTextBoxGenerator {
-    labels: [&'static str;5],
-    label_dims: [TextDimensions; 5],
-    label_params: TextParams,
-    default_data: [f64; 5],
-    width: f32,
-    height: f32,
-    start_x: u16,
-    start_y: f32,
-    y_change: f32,
-    content_params: TextParams
-}
-impl GeneralMenuTextBoxGenerator {
-    fn get_text_box(&self, i: usize, visualiser: &Visualiser) -> TextBox {
-        TextBox::new(
-            visualiser,
-            Some(InputLabel { 
-                text: self.labels[i].to_owned(), 
-                label_dims: self.label_dims[i], 
-                label_params: self.label_params
-            }),
-            self.default_data[i].to_string(),
-            self.width,
-            self.height,
-            self.start_x,
-            self.start_y + i as f32*self.y_change,
-            self.content_params
-        )
-    }
-}
-
 struct GeneralMenu {
     center_re: TextBox,
     center_im: TextBox,
@@ -1890,46 +2123,29 @@ struct GeneralMenu {
     progress_bar: ProgressBar
 }
 impl GeneralMenu {
-    fn new(visualiser: &Visualiser, text_font: Font) -> GeneralMenu {
-        let labels = [
+    fn new(visualiser: &Visualiser, font: Font) -> GeneralMenu {
+        let labels = vec![
             "center (re)", "center (im)", "magnification", 
             "max iterations", "bailout"
         ];
-        let mut label_dims: [TextDimensions; 5] = [TextDimensions{width: 0., height: 0., offset_y: 0.}; 5];
-        let font_size = (screen_width() * TEXTBOX_LABEL_FONT_PROPORTION) as u16;
+        let box_vert_padding = screen_height() * DEFAULT_INPUT_BOX_VERT_PADDING;
 
-        let mut max_label_width = 0.0;
-        for (i, label) in labels.iter().enumerate() {
-            let dims = measure_text(label, Some(text_font), font_size, 1.0);
-            label_dims[i] = dims;
-            max_label_width = f32::max(max_label_width, dims.width);
-        }
+        let center_re_input_box = GradientInputBox::default_top(visualiser);
+        let center_im_input_box = center_re_input_box.next_vert(visualiser, box_vert_padding, true);
+        let magnification_input_box = center_im_input_box.next_vert(visualiser, box_vert_padding, true);
+        let max_iter_input_box = magnification_input_box.next_vert(visualiser, box_vert_padding, true);
+        let bailout_input_box = max_iter_input_box.next_vert(visualiser, box_vert_padding, true);
 
-        let start_x = (screen_width() * TEXTBOX_LABEL_WIDTH_PADDING_PROPORTION * 2. + max_label_width) as u16;
-        let start_y = screen_height() * TEXTBOX_START_Y_PROPORTION;
-        let y_change = screen_height() * (TEXTBOX_HEIGHT_PROPORTION + TEXTBOX_HEIGHT_PADDING_PROPORTION);
-        let width = screen_width()*MENU_SCREEN_PROPORTION 
-                         - start_x as f32
-                         - screen_width() * TEXTBOX_RIGHT_PADDING;
-        let height = screen_height() * TEXTBOX_HEIGHT_PROPORTION;
-        
-        let gradient = get_back_gradient(visualiser, start_x, width as u16, height as u16);
-        let label_params = TextParams {font: text_font, font_size, color: get_brightest_colour(gradient), ..Default::default()};
-        Texture2D::delete(&gradient);
-        let content_params = TextParams {font: text_font, font_size, color: WHITE, ..Default::default()};
+        let input_boxes = vec![
+            center_re_input_box, center_im_input_box, magnification_input_box, max_iter_input_box, bailout_input_box
+        ];
 
-        let generator = GeneralMenuTextBoxGenerator {
-            labels, label_dims, label_params, default_data: [-0.5, 0., 1.0, 500., 200.], 
-            start_x, width, height, start_y, y_change, content_params
-        };
-
-
-        GeneralMenu {
-            center_re: generator.get_text_box(0, visualiser),
-            center_im: generator.get_text_box(1, visualiser),
-            magnification: generator.get_text_box(2, visualiser),
-            max_iterations: generator.get_text_box(3, visualiser),
-            bailout: generator.get_text_box(4, visualiser),
+        GeneralMenu { 
+            center_re: GeneralMenu::create_textbox(visualiser, &input_boxes, font, 0),
+            center_im: GeneralMenu::create_textbox(visualiser, &input_boxes, font, 1),
+            magnification: GeneralMenu::create_textbox(visualiser, &input_boxes, font, 2),
+            max_iterations: GeneralMenu::create_textbox(visualiser, &input_boxes, font, 3),
+            bailout: GeneralMenu::create_textbox(visualiser, &input_boxes, font, 4),
             progress_bar: ProgressBar::new(
                 visualiser, 
                 Rect::new(
@@ -1938,9 +2154,31 @@ impl GeneralMenu {
                     screen_width()*PROGRESS_BAR_WIDTH,
                     screen_height()*PROGRESS_BAR_HEIGHT
                 ),
-                Some(InputLabel::new("0%", text_font, screen_width()*PROGRESS_BAR_FONT_PROPORTION, WHITE))
+                Some(InputLabel::new(
+                    "0%", 
+                    font, 
+                    screen_width()*PROGRESS_BAR_FONT_PROPORTION, 
+                    WHITE, false,
+                    0., TextAlign::Centre // these don't matter for progress bars (yet)
+                ))
             ),
         }
+    }
+
+    fn create_textbox(
+        visualiser: &Visualiser,
+        input_boxes: &Vec<GradientInputBox>, 
+        font: Font, 
+        i: usize
+    ) -> TextBox {
+        TextBox::new(
+            input_boxes[i].clone(),
+            InputLabel::default_input_box_label(visualiser, font, 
+                ["center (re)", "center (im)", "magnification", "max iterations", "bailout"][i], 
+                true),
+            InputLabel::default_input_box_content(font),
+            ""
+        )
     }
 
     fn all_text_boxes(&mut self) -> [&mut TextBox; 5] {
@@ -1953,11 +2191,11 @@ impl GeneralMenu {
         if i == 0 {
             visualiser.center.real_string()
         } else if i == 1 {
-            visualiser.center.im_string()
+            visualiser.center.im_string() 
         } else if i == 2 {
             (0.005/visualiser.pixel_step).to_string()
         } else if i == 3 {
-            visualiser.max_iterations.to_string()
+            (visualiser.max_iterations as u32).to_string()
         } else {
             20.0.to_string() // placeholder until bailout becomes dynamic
         }
@@ -1970,11 +2208,13 @@ impl GeneralMenu {
             visualiser.center.update_im_from_string(new);
         } else if i == 2 {
             if let Ok(new) = new.parse::<f64>() {
+                if new <= 0.0 { return };
                 visualiser.set_pixel_step(0.005/new);
             }
         } else if i == 3 {
-            if let Ok(new) = new.parse::<f32>() {
-                visualiser.max_iterations = new;
+            if let Ok(new) = new.parse::<u32>() {
+                if new < 1 { return };
+                visualiser.max_iterations = new as f32;
             }
         } else {
             // placeholder until bailout becomes dynamic
@@ -2051,7 +2291,13 @@ fn generate_strength_slider(strength_slider_text_params: TextParams, inner_rect:
             label_dims: TextDimensions { 
                 width: strength_measure.width, 
                 height: strength_measure.height, offset_y: 0.0 },
-            label_params: strength_label_params 
+            label_params: strength_label_params,
+            padding: screen_width() * DEFAULT_INPUT_BOX_LABEL_PADDING,
+            alignment: TextAlign::StartX(
+                screen_width()*(LAYERMANAGER_LEFT_PADDING+LAYERMANAGER_INNER_LEFT_PADDING)+
+                screen_height()*LAYERMANAGER_BORDER_PROPORTION
+            ),
+            gradient_colour: false
         }),
         layer_strength,
         100.,
@@ -2158,15 +2404,24 @@ impl LayerManager {
                 vec![]
             ),
             name: TextBox::new(
-                visualiser,
-                None, 
-                layer.name.clone(),
-                name_textbox_width,
-                name_textbox_height,
-                name_textbox_start_x as u16,
-                screen_height()*LAYERMANAGER_INNER_TOP_PADDING,
-                name_text_params
-            ), 
+                GradientInputBox::new(
+                    visualiser, 
+                    name_textbox_start_x, 
+                    screen_height()*LAYERMANAGER_INNER_TOP_PADDING,
+                    name_textbox_width,
+                    name_textbox_height,
+                    screen_height() * DEFAULT_INPUT_BOX_BORDER_SIZE
+                ),
+                None,
+                InputLabel::new(
+                    &layer.name, 
+                    name_text_params.font, 
+                    name_text_params.font_size as f32,
+                    WHITE, false,
+                    screen_width() * DEFAULT_INPUT_BOX_CONTENT_HOR_PADDING,
+                    TextAlign::Left(true)
+                ), ""
+            ),
             layer_type_text_params,
             edit_button: Button::new(
                 (palette_size, palette_size),
@@ -2195,13 +2450,19 @@ impl LayerManager {
             strength_slider: generate_strength_slider(strength_slider_text_params, inner_rect, layer.strength),
             layer_range_dropdown: DropDown::new(
                 visualiser,
-                (screen_width()*LAYERMANAGER_LAYER_RANGE_FONT_PROPORTION) as u16,
-                (edit_button_x, layer_range_dropdown_y),
-                // (edit_button_x+palette_size+screen_width()*LAYERMANAGER_INNER_LEFT_PADDING, layer_range_dropdown_y),
-                (palette_size, inner_rect.bottom() - layer_range_dropdown_y - screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
-                // (palette_size, palette_size*0.4),
-                edit_button_border,
-                None
+                GradientInputBox::new(
+                    visualiser,
+                    edit_button_x, layer_range_dropdown_y,
+                    palette_size, palette_size*0.4,
+                    edit_button_border
+                ),
+                None,
+                InputLabel::new(
+                    "", name_text_params.font, screen_width()*LAYERMANAGER_LAYER_RANGE_FONT_PROPORTION, 
+                    WHITE, false,
+                    screen_width() * LAYERMANAGER_LAYER_RANGE_CONTENT_HOR_PADDING,
+                TextAlign::Left(true)
+                )
             ).await,
             delete_button: Button::new(
                 (delete_button_size, delete_button_size),
@@ -2279,7 +2540,7 @@ impl LayerManager {
             released: false 
         };
 
-        manager.undo_translation();
+        manager.undo_translation(visualiser);
 
         let outer_rect = Rect::new(
             screen_width()*LAYERMANAGER_LEFT_PADDING,
@@ -2292,54 +2553,56 @@ impl LayerManager {
         manager
     }
 
-    fn translate(&mut self, new_outer_rect_pos: (f32, f32)) {
+    fn translate(&mut self, new_outer_rect_pos: (f32, f32), visualiser: &Visualiser) {
         if self.translated {
             if self.outer_rect.x == new_outer_rect_pos.0 && self.outer_rect.y == new_outer_rect_pos.1 {
                 return;
             }
-            self.undo_translation();
+            self.undo_translation(visualiser);
         }
 
         self.outer_rect.x = new_outer_rect_pos.0;
         self.outer_rect.y = new_outer_rect_pos.1;
-        self.perform_translation();
+        self.perform_translation(visualiser);
 
         self.translated = true;
     }
 
-    fn translate_items(&mut self, translate: (f32, f32)) {
+    fn translate_items(&mut self, translate: (f32, f32), visualiser: &Visualiser) {
         self.palette_button.translate(translate);
-        self.name.translate(translate);
+        self.name.translate(translate, visualiser);
         self.edit_button.translate(translate);
         self.strength_slider.translate(translate);
-        self.layer_range_dropdown.translate(translate);
+        self.layer_range_dropdown.translate(translate, visualiser);
         self.delete_button.translate(translate);
         translate_rect(&mut self.drag_rect, translate);
     }
 
-    fn perform_translation(&mut self) {
+    fn perform_translation(&mut self, visualiser: &Visualiser) {
         let translate = (self.outer_rect.x, self.outer_rect.y);
         translate_rect(&mut self.inner_rect, translate);
 
         let translate = (self.inner_rect.x, self.inner_rect.y);
-        self.translate_items(translate);
+        self.translate_items(translate, visualiser);
     }
 
-    fn undo_translation(&mut self) {
+    fn undo_translation(&mut self, visualiser: &Visualiser) {
         let translate = (-self.outer_rect.x, -self.outer_rect.y);
         let old_inner = self.inner_rect.clone();
         translate_rect(&mut self.inner_rect, translate);
 
         let translate = (-old_inner.x, -old_inner.y);
-        self.translate_items(translate);
+        self.translate_items(translate, visualiser);
         
         self.translated = false;
     }
 
-    fn update(&mut self, layer: &mut Layer, update_edit_button: bool) -> bool {
+    fn update(&mut self, visualiser: &mut Visualiser, layer_i: usize, update_edit_button: bool) -> bool {
         if !self.translated {
-            self.translate((self.outer_rect.x, self.outer_rect.y));
+            self.translate((self.outer_rect.x, self.outer_rect.y), visualiser);
         }
+
+        let layer = &mut visualiser.layers.layers[layer_i];
 
         self.draw(layer);
 
@@ -2550,9 +2813,22 @@ impl LayersMenu {
         ));
         self.add_button.translate(LayersMenu::get_add_topleft(layers_num));
     }
+
+    fn update_manager_positions(&mut self, visualiser: &Visualiser) {
+        for (i, layer_manager) in self.layer_managers.iter_mut().enumerate() {
+            layer_manager.translate((
+                screen_width()*LAYERMANAGER_LEFT_PADDING,
+                screen_height()*(1.0-LAYERMANAGER_BOTTOM_PADDING-LAYERMANAGER_HEIGHT) - i as f32 * 
+                    (screen_height()*(LAYERMANAGER_HEIGHT+LAYERMANAGER_TOP_PADDING)) + self.scroll
+            ), visualiser);
+            for element in layer_manager.palette_button.back_elements.iter_mut() {
+                element.gradient_change_layer_i(i);
+            }
+        }
+    }
     
     fn add_layer(&mut self, visualiser: &mut Visualiser) {
-        let mut new_layer =  Layer::new(LayerType::Colour, LayerRange::Both, 0., Palette::default());
+        let mut new_layer =  Layer::default();
         new_layer.palette.generate_palette(visualiser.max_iterations);
         visualiser.layers.add_layer(&new_layer);
 
@@ -2566,16 +2842,9 @@ impl LayersMenu {
         let deleted = self.layer_managers.remove(i);
         drop(deleted);
 
-        for (i, layer_manager) in self.layer_managers.iter_mut().enumerate() {
-            layer_manager.translate((
-                screen_width()*LAYERMANAGER_LEFT_PADDING,
-                screen_height()*(1.0-LAYERMANAGER_BOTTOM_PADDING-LAYERMANAGER_HEIGHT) - i as f32 * 
-                    (screen_height()*(LAYERMANAGER_HEIGHT+LAYERMANAGER_TOP_PADDING)) + self.scroll
-            ));
-        }
-
+        self.update_manager_positions(&visualiser);
         self.update_add_button_pos(visualiser.layers.layers.len(), 1);
-        self.update_scroll(true);
+        self.update_scroll(&visualiser, true);
     }
 
     /// gets the index of the layer manager the mouse is dragging over
@@ -2648,13 +2917,7 @@ impl LayersMenu {
                 ptr += 1;
             }
         }
-        for (i, layer_manager) in self.layer_managers.iter_mut().enumerate() {
-            layer_manager.translate((
-                screen_width()*LAYERMANAGER_LEFT_PADDING,
-                screen_height()*(1.0-LAYERMANAGER_BOTTOM_PADDING-LAYERMANAGER_HEIGHT) - i as f32 * 
-                    (screen_height()*(LAYERMANAGER_HEIGHT+LAYERMANAGER_TOP_PADDING)) + self.scroll
-            ));
-        }
+        self.update_manager_positions(&visualiser);
     }
 
     fn get_add_topleft(layers_num: usize) -> (f32, f32) {
@@ -2666,7 +2929,7 @@ impl LayersMenu {
     }
 
     /// draw + update scroll
-    fn update_scroll(&mut self, just_deleted: bool) {
+    fn update_scroll(&mut self, visualiser: &Visualiser, just_deleted: bool) {
         let top_y = screen_height()*(NAVBAR_HEIGHT_PROPORTION+2.*STATE_TEXT_PADDING_PROPORTION) +
             screen_width()*STATE_TEXT_FONT_PROPORTION;
         let menu_height = screen_height()-top_y;
@@ -2704,7 +2967,7 @@ impl LayersMenu {
 
         // undo last scroll
         for manager in self.layer_managers.iter_mut() {
-            manager.translate((manager.outer_rect.x, manager.outer_rect.y - self.scroll));
+            manager.translate((manager.outer_rect.x, manager.outer_rect.y - self.scroll), visualiser);
         }
         self.add_button.translate((0., -self.scroll));
 
@@ -2720,7 +2983,7 @@ impl LayersMenu {
         }
 
         for manager in self.layer_managers.iter_mut() {
-            manager.translate((manager.outer_rect.x, manager.outer_rect.y + self.scroll));
+            manager.translate((manager.outer_rect.x, manager.outer_rect.y + self.scroll), visualiser);
         }
         self.add_button.translate((0., self.scroll));
     }
@@ -2734,7 +2997,7 @@ impl MenuType for LayersMenu {
             if i > 0 {
                 inactive_dropdowns.push(i-1);
             }
-            if manager.edit_button.rect.overlaps(&manager.layer_range_dropdown.open_rect) {
+            if manager.edit_button.rect.overlaps(&manager.layer_range_dropdown.open_grad_input_box.outer_rect()) {
                 inactive_dropdowns.push(i);
             }
         }
@@ -2746,7 +3009,8 @@ impl MenuType for LayersMenu {
         let mut delete_i: Option<usize> = None;
         for (i, manager) in self.layer_managers.iter_mut().enumerate() {
             let this_changed = manager.update(
-                &mut visualiser.layers.layers[i], 
+                visualiser,
+                i, 
                 !inactive_dropdowns.contains(&i)
             );
             if this_changed { changed = true }
@@ -2799,7 +3063,7 @@ impl MenuType for LayersMenu {
         );
 
         if drag_i.is_none() {
-            self.update_scroll(false);
+            self.update_scroll(&visualiser, false);
         }
 
         if changed {
@@ -2826,112 +3090,6 @@ impl MenuType for LayersMenu {
     }
 }
 
-struct SpecificMenuEditorInputGenerator {
-    // y position of the bottom of the title
-    top_y: f32,
-    font: Font,
-    font_size: u16,
-    inputbox_start_x: f32,
-    inputbox_width: f32,
-    inputbox_height: f32,
-    border_size: f32,
-    inputbox_vert_padding: f32,
-    inputbox_label_colour: Color
-}
-impl SpecificMenuEditorInputGenerator {
-    async fn new(visualiser: &Visualiser) -> SpecificMenuEditorInputGenerator {
-        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
-
-        let title_height = measure_text(
-            "Orbit Trap", 
-            Some(font), 
-            (screen_width()*LAYEREDITOR_SPECIFIC_MENU_TITLE_FONT_PROPORTION) as u16, 
-            1.0
-        ).height;
-
-        let inputbox_start_x = screen_width()*LAYEREDITOR_TEXTBOX_START_X;
-        let inputbox_width = screen_width()*(MENU_SCREEN_PROPORTION-TEXTBOX_RIGHT_PADDING) - inputbox_start_x;
-
-        SpecificMenuEditorInputGenerator { 
-            top_y: screen_height()*(NAVBAR_HEIGHT_PROPORTION+LAYEREDITOR_CAROUSEL_HEIGHT+2.*STATE_TEXT_PADDING_PROPORTION+
-                TEXTBOX_HEIGHT_PROPORTION+2.*LAYEREDITOR_INPUT_BOX_VERT_PADDING+LAYEREDTIOR_SPECIFIC_MENU_BAR_HEIGHT) + screen_width()*STATE_TEXT_FONT_PROPORTION+title_height, 
-            font, 
-            font_size: (screen_width()*LAYEREDITOR_INPUT_FONT_PROPORTION) as u16, 
-            inputbox_start_x, 
-            inputbox_width, 
-            inputbox_height: screen_height()*TEXTBOX_HEIGHT_PROPORTION,
-            border_size: screen_height()*TEXTBOX_BORDER_PROPORTION,
-            inputbox_vert_padding: screen_height()*LAYEREDITOR_INPUT_BOX_VERT_PADDING,
-            inputbox_label_colour: get_brightest_colour(get_back_gradient(
-                visualiser, 
-                inputbox_start_x as u16, 
-                inputbox_width as u16, 
-                1
-            ))
-        }
-    }
-
-    fn get_inputbox_dims(&self, num: usize) -> Rect {
-        Rect::new(
-            self.inputbox_start_x,
-            self.top_y + self.inputbox_vert_padding + num as f32 * (self.inputbox_height+self.inputbox_vert_padding),
-            self.inputbox_width,
-            self.inputbox_height
-        )
-    }
-
-    fn get_text_params(&self) -> TextParams {
-        TextParams { 
-            font: self.font, 
-            font_size: self.font_size, 
-            color: self.inputbox_label_colour,
-            ..Default::default()
-        }
-    }
-
-    fn measure_text(&self, text: &str) -> TextDimensions {
-        measure_text(
-            text,
-            Some(self.font), 
-            self.font_size, 
-            1.0
-        )
-    }
-
-    async fn make_dropdown<T: DropDownType<T> + PartialEq + Clone>(&self, visualiser: &Visualiser, num: usize, label: &str)-> DropDown<T> {
-        let rect = self.get_inputbox_dims(num);
-
-        DropDown::new(
-            visualiser,
-            self.font_size,
-            (rect.x, rect.y),
-            (rect.w, rect.h),
-            self.border_size,
-            Some(InputLabel { 
-                text: String::from(label), 
-                label_dims: self.measure_text(label), 
-                label_params: self.get_text_params()
-            })
-        ).await
-    }
-
-    fn make_textbox(&self, visualiser: &Visualiser, num: usize, label: &str) -> TextBox {
-        let rect = self.get_inputbox_dims(num);
-
-        TextBox::new(
-            visualiser,
-            Some(InputLabel { 
-                text: String::from(label),
-                label_dims: self.measure_text(label), 
-                label_params: self.get_text_params()
-            }),
-            String::from("0"),
-            rect.w, rect.h, rect.x as u16, rect.y,
-            TextParams { font: self.font, font_size: self.font_size, color: WHITE, ..Default::default() }
-        )
-    }
-}
-
 struct OrbitTrapEditor {
     top_bar: Texture2D,
     top_bar_y: f32,
@@ -2945,29 +3103,62 @@ struct OrbitTrapEditor {
 }
 impl OrbitTrapEditor {
     async fn new(visualiser: &Visualiser) -> OrbitTrapEditor {
-        let generator = SpecificMenuEditorInputGenerator::new(visualiser).await;
+        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+        let font_size = (screen_width()*LAYEREDITOR_SPECIFIC_MENU_TITLE_FONT_PROPORTION) as u16;
+
+        let title_height = measure_text(
+            "Orbit Trap", 
+            Some(font), 
+            (screen_width()*LAYEREDITOR_SPECIFIC_MENU_TITLE_FONT_PROPORTION) as u16, 
+            1.0
+        ).height;
 
         let top_bar = get_back_gradient(visualiser, 0, 
             (screen_width()*MENU_SCREEN_PROPORTION) as u16, 
             (screen_height()*LAYEREDTIOR_SPECIFIC_MENU_BAR_HEIGHT) as u16
         );
+        let top_bar_y = navbar_bottom() + 
+            screen_height()*(LAYEREDITOR_CAROUSEL_HEIGHT+DEFAULT_INPUT_BOX_HEIGHT+2.*LAYEREDITOR_INPUT_BOX_VERT_PADDING);
+
+        let vert_padding = screen_height() * LAYEREDITOR_INPUT_BOX_VERT_PADDING;
+
+        let trap_type_input_box = GradientInputBox::default(visualiser, 
+            top_bar_y + title_height + screen_height()*(2.*LAYEREDITOR_INPUT_BOX_VERT_PADDING+LAYEREDTIOR_SPECIFIC_MENU_BAR_HEIGHT)
+        );
+        let analysis_input_box = trap_type_input_box.next_vert(visualiser, vert_padding, true);
+        let center_re_input_box = analysis_input_box.next_vert(visualiser, vert_padding, true);
+        let center_im_input_box = center_re_input_box.next_vert(visualiser, vert_padding, true);
+        let specific_input_box = center_im_input_box.next_vert(visualiser, vert_padding, true);
+
+        let labels = vec!["type", "analysis", "center (re)", "center(im)", "arm length"];
 
         OrbitTrapEditor {
             top_bar,
-            top_bar_y: screen_height()*(NAVBAR_HEIGHT_PROPORTION+LAYEREDITOR_CAROUSEL_HEIGHT+2.*STATE_TEXT_PADDING_PROPORTION+
-                TEXTBOX_HEIGHT_PROPORTION+2.*LAYEREDITOR_INPUT_BOX_VERT_PADDING) + screen_width()*STATE_TEXT_FONT_PROPORTION,
+            top_bar_y,
             title_params: TextParams { 
-                font: generator.font, 
-                font_size: (screen_width()*LAYEREDITOR_SPECIFIC_MENU_TITLE_FONT_PROPORTION) as u16, 
+                font: font, 
+                font_size, 
                 color: get_brightest_colour(top_bar),
                 ..Default::default()
             },
-            trap_type: generator.make_dropdown(visualiser, 0, "type").await,
-            analysis: generator.make_dropdown(visualiser, 1, "analysis").await,
-            center_re: generator.make_textbox(visualiser, 2, "center (re)"),
-            center_im: generator.make_textbox(visualiser, 3, "center (im)"),
-            radius: generator.make_textbox(visualiser, 4, "radius"),
-            arm_length: generator.make_textbox(visualiser, 4, "arm length"),
+            trap_type: DropDown::new(visualiser, trap_type_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "type", true), 
+                InputLabel::default_input_box_content(font)).await,
+            analysis: DropDown::new(visualiser, analysis_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "analysis", true), 
+                InputLabel::default_input_box_content(font)).await,
+            center_re: TextBox::new(center_re_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "center (re)", true), 
+                InputLabel::default_input_box_content(font), ""),
+            center_im: TextBox::new(center_im_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "center (im)", true), 
+                InputLabel::default_input_box_content(font), ""),
+            radius: TextBox::new(specific_input_box.sealed_clone(visualiser), 
+                InputLabel::default_input_box_label(visualiser, font, "radius", true), 
+                InputLabel::default_input_box_content(font), ""),
+            arm_length: TextBox::new(specific_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "arm length", true), 
+                InputLabel::default_input_box_content(font), "")
         }
     }
 
@@ -2984,12 +3175,19 @@ impl OrbitTrapEditor {
                 changed = true;
             }
         }
-        if let Some(new_im) = self.center_im.update(orbit_trap.get_center_im().to_string()) {
-            if let Ok(new) = new_im.parse::<f64>() {
-                orbit_trap.set_center_im(new);
-                changed = true;
-            }
+        // if let Some(new_im) = self.center_im.update(orbit_trap.get_center_im().to_string()) {
+        //     if let Ok(new) = new_im.parse::<f64>() {
+        //         orbit_trap.set_center_im(new);
+        //         changed = true;
+        //     }
+        // }
+        if let Some(Ok(new)) = self.center_im
+                                    .update(orbit_trap.get_center_im().to_string())
+                                    .and_then(|new_im| Some(new_im.parse::<f64>())) {
+            orbit_trap.set_center_im(new);
+            changed = true;
         }
+                            
 
         match orbit_trap {
             OrbitTrapType::Point(_) => {},
@@ -3064,50 +3262,30 @@ struct LayerEditorMenu {
 }
 impl LayerEditorMenu {
     async fn new(visualiser: &Visualiser) -> LayerEditorMenu {
-        let carousel_font_size = (screen_width()*LAYEREDITOR_CAROUSEL_FONT_PROPORTION) as u16;
-        let font_size = (screen_width()*LAYEREDITOR_INPUT_FONT_PROPORTION) as u16;
+        let carousel_font_size = screen_width()*LAYEREDITOR_CAROUSEL_FONT_PROPORTION;
+        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
         
         let carousel_start_y = screen_height()*(NAVBAR_HEIGHT_PROPORTION+2.*STATE_TEXT_PADDING_PROPORTION) + screen_width()*STATE_TEXT_FONT_PROPORTION;
         let carousel_height = screen_height()*LAYEREDITOR_CAROUSEL_HEIGHT;
 
-        let textbox_start_x = screen_width()*LAYEREDITOR_TEXTBOX_START_X;
         let type_textbox_start_y = carousel_start_y + carousel_height + screen_height()*LAYEREDITOR_INPUT_BOX_VERT_PADDING;
-
-        let layer_type_label_font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
-        let layer_type_label_measure = measure_text(
-            "type", 
-            Some(layer_type_label_font), 
-            font_size, 
-            1.0
-        );
 
         LayerEditorMenu { 
             layer_carousel: Carousel::new(
-                visualiser,
-                carousel_font_size,
-                (0., carousel_start_y),
-                (screen_width()*MENU_SCREEN_PROPORTION, carousel_height),
-                screen_width()*NAVBAR_BORDER_WIDTH_PROPORTION
+                GradientInputBox::new(
+                    visualiser, 
+                    0., carousel_start_y,
+                    screen_width()*MENU_SCREEN_PROPORTION, carousel_height, 
+                    screen_width()*NAVBAR_BORDER_WIDTH_PROPORTION
+                ),
+                InputLabel::new("", font, carousel_font_size, WHITE,  false, 
+                    0., TextAlign::Centre)
             ).await,
             layer_type: DropDown::new(
-                visualiser, 
-                font_size as u16,
-                (textbox_start_x, type_textbox_start_y),
-                (screen_width()*(MENU_SCREEN_PROPORTION-TEXTBOX_RIGHT_PADDING) - textbox_start_x, screen_height()*TEXTBOX_HEIGHT_PROPORTION),
-                screen_height()*TEXTBOX_BORDER_PROPORTION,
-                Some(InputLabel { 
-                    text: String::from("type"),
-                    label_dims: layer_type_label_measure,
-                    label_params: TextParams { font: layer_type_label_font, font_size, 
-                        color: get_brightest_colour(get_back_gradient(
-                            visualiser, 
-                            textbox_start_x as u16,  
-                            (screen_width()*(MENU_SCREEN_PROPORTION-TEXTBOX_RIGHT_PADDING) - textbox_start_x) as u16, 
-                            layer_type_label_measure.height as u16
-                        )), 
-                        ..Default::default() 
-                    }
-                })
+                visualiser,
+                GradientInputBox::default(visualiser, type_textbox_start_y),
+                InputLabel::default_input_box_label(visualiser, font, "type", true),
+                InputLabel::default_input_box_content(font)
             ).await,
             current_index: 0,
             orbit_trap_editor: OrbitTrapEditor::new(visualiser).await
@@ -3154,6 +3332,7 @@ impl MenuType for LayerEditorMenu {
             Layers::place_constraints(&mut visualiser.layers.layers);
             visualiser.layers.update_implementors();
             visualiser.generate_image();
+            return MenuSignal::RefreshGradients;
         }
 
         MenuSignal::None
@@ -3278,20 +3457,8 @@ impl ColourPointEditor {
 
         if !self.selected { return }
 
-        draw_rectangle(
-            self.outer_select_box.x, 
-            self.outer_select_box.y, 
-            self.outer_select_box.w, 
-            self.outer_select_box.h, 
-            WHITE
-        );
-        draw_rectangle(
-            self.inner_select_box.x,
-            self.inner_select_box.y,
-            self.inner_select_box.w,
-            self.inner_select_box.h,
-            self.colour
-        );
+        draw_rect(&self.outer_select_box, WHITE);
+        draw_rect(&self.inner_select_box, self.colour);
     }
 
     fn mouse_interact(&mut self, other_selected: bool) -> Option<f32> {
@@ -3359,8 +3526,6 @@ impl PaletteEditor {
         let button_border = screen_width()*PALETTEEDIOR_BUTTON_BORDER_WIDTH;
         let inner_button_size = button_size - 2.*button_border;
         let delete_button_start_x = screen_width()*(MENU_SCREEN_PROPORTION-PALETTEEDITOR_HOR_PADDING)-button_size;
-
-        let font_size = screen_width()*PALETTEEDTIOR_FONT_PROPORTION;
 
         let bar_bottom = title_rect.h + 
             vert_padding*4. + 
@@ -3485,11 +3650,14 @@ impl PaletteEditor {
             palette_texture: Texture2D::empty(),
             mapping_type: DropDown::new(
                 visualiser,
-                font_size as u16,
-                (textbox_dims.right()-screen_width()*PALETTEEDITOR_MAPPING_DROPDOWN_WIDTH, palette_rect.bottom() + vert_padding),
-                (screen_width()*PALETTEEDITOR_MAPPING_DROPDOWN_WIDTH, textbox_dims.h),
-                screen_height() * TEXTBOX_BORDER_PROPORTION,
-                Some(InputLabel::new("mapping type", font, font_size, WHITE))
+                GradientInputBox::new(
+                    visualiser, 
+                    textbox_dims.right()-screen_width()*PALETTEEDITOR_MAPPING_DROPDOWN_WIDTH, palette_rect.bottom() + vert_padding,
+                    screen_width()*PALETTEEDITOR_MAPPING_DROPDOWN_WIDTH, textbox_dims.h,
+                    screen_height() * DEFAULT_INPUT_BOX_BORDER_SIZE
+                ),
+                InputLabel::default_input_box_label(visualiser, font, "mapping type", false),
+                InputLabel::default_input_box_content(font)
             ).await,
             length_slider: PaletteEditor::get_slider(4, visualiser, font, title_rect.h, vert_padding),
             offset_slider: PaletteEditor::get_slider(5, visualiser, font, title_rect.h, vert_padding),
@@ -3617,7 +3785,9 @@ impl PaletteEditor {
                     }, 
                     font, 
                     font_size, 
-                    WHITE
+                    WHITE, false,
+                    screen_width() * DEFAULT_INPUT_BOX_LABEL_PADDING, 
+                    TextAlign::StartX(screen_width() * MENU_HOR_PADDING)
                 )),
             0., 
             match slider_i <= 3 {
@@ -3625,23 +3795,19 @@ impl PaletteEditor {
                 false => 100.
             },
             None, 
-            Some(
-                TextBox::new(
-                    visualiser,
-                    None, 
-                    String::from(""),
-                    textbox_width,
-                    textbox_height,
-                    textbox_start_x as u16,
+            Some(TextBox::new(
+                GradientInputBox::new(
+                    visualiser, 
+                    textbox_start_x, 
                     rect.y - screen_height()*(PALETTEEDITOR_TEXTBOX_HEIGHT-PALETTEEDITOR_COLOUR_SLIDER_HEIGHT)/2.,
-                    TextParams { 
-                        font, 
-                        font_size: font_size as u16,
-                        color: WHITE ,
-                        ..Default::default()
-                    }
-                )),
-                rect.x, rect.y, rect.w, rect.h,
+                    textbox_width, textbox_height, 
+                    screen_height() * DEFAULT_INPUT_BOX_BORDER_SIZE
+                ),  
+                None,
+                InputLabel::default_input_box_content(font),
+                ""
+            )),
+            rect.x, rect.y, rect.w, rect.h,
             match slider_i <= 3 {
                 true => Box::new(GradientSliderBar::empty()),
                 false => Box::new(SolidSliderBar::new(LAYERMANAGER_LAYER_TYPE_COLOUR))
@@ -3821,7 +3987,7 @@ impl MenuType for PaletteEditor {
 
         draw_texture(self.bar_grad, self.bar_rect.x, self.bar_rect.y, WHITE);
         Texture2D::delete(&self.palette_texture);
-        self.palette_texture = palette.get_full_palette(self.palette_rect.w, self.palette_rect.h, visualiser.max_iterations);
+        self.palette_texture = palette.get_full_palette(self.palette_rect.w, self.palette_rect.h);
         draw_texture(
             self.palette_texture, 
             self.palette_rect.x, self.palette_rect.y, WHITE
@@ -3905,16 +4071,19 @@ impl MenuType for PaletteEditor {
 
         let palette = &visualiser.layers.layers[self.layer_index].palette;
         self.colour_map_texture = palette.get_full_gradient(self.colour_map_rect.w, self.colour_map_rect.h);
-        self.palette_texture = palette.get_full_palette(self.palette_rect.w, self.palette_rect.h, visualiser.max_iterations);
+        self.palette_texture = palette.get_full_palette(self.palette_rect.w, self.palette_rect.h);
 
         self.add_button.refresh_gradient(visualiser);
         self.delete_button.refresh_gradient(visualiser);
         self.red_slider.refresh_gradient(visualiser);
         self.green_slider.refresh_gradient(visualiser);
         self.blue_slider.refresh_gradient(visualiser);
+        self.alpha_slider.refresh_gradient(visualiser);
         self.mapping_type.refresh_gradient(visualiser);
         self.length_slider.refresh_gradient(visualiser);
         self.offset_slider.refresh_gradient(visualiser);
+        self.sumbit_button.refresh_gradient(visualiser);
+        self.cancel_button.refresh_gradient(visualiser);
     }
 }
 
@@ -3960,16 +4129,21 @@ struct ScreenshotMenu {
 }
 impl ScreenshotMenu {
     async fn new(visualiser: &Visualiser) -> ScreenshotMenu { 
-        let res_rect = ScreenshotMenu::get_input_rect(1);
         let font =  load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
-        let font_size = screen_width()*LAYEREDITOR_INPUT_FONT_PROPORTION;
-        let gradient = get_back_gradient(visualiser, res_rect.x as u16, res_rect.w as u16, res_rect.h as u16);
-        let label_colour = get_brightest_colour(gradient);
 
-        let bar_rect = Rect::new(0., 
-            res_rect.bottom() + screen_height()*(2.*LAYEREDITOR_INPUT_BOX_VERT_PADDING+SCREENSHOT_VERT_PADDING) + 2. * res_rect.h,
-            screen_width()*MENU_SCREEN_PROPORTION,
-            screen_height()*SCREENSHOT_BAR_HEIGHT
+        let vert_padding = screen_height() * DEFAULT_INPUT_BOX_VERT_PADDING;
+        let name_input_box = GradientInputBox::default_top(visualiser);
+        let res_input_box = name_input_box.next_vert(visualiser, vert_padding, true);
+        let width_input_box = res_input_box.next_vert(visualiser, vert_padding, true);
+        let height_input_box = width_input_box.next_vert(visualiser, vert_padding, true);
+
+        let labels = vec!["name", "resolution", "width", "height"];
+
+        let bar_rect = Rect::new(
+            0.,
+            height_input_box.outer_rect().bottom() + screen_height() * SCREENSHOT_VERT_PADDING,
+            screen_width() * MENU_SCREEN_PROPORTION,
+            screen_height() * SCREENSHOT_BAR_HEIGHT
         );
 
         let button_size = screen_width()*SCREENSHOT_BUTTON_WIDTH;
@@ -3977,17 +4151,23 @@ impl ScreenshotMenu {
         let inner_button_size = button_size - 2. * button_border;
         let button_x_padding = screen_width()*TEXTBOX_RIGHT_PADDING;
 
+
         ScreenshotMenu {
-            name: ScreenshotMenu::get_textbox(0, "name", "[date]_[time]", visualiser).await,
-            resolution: DropDown::new(
-                visualiser, font_size as u16, 
-                (res_rect.x, res_rect.y), (res_rect.w, res_rect.h),
-                screen_height()*TEXTBOX_BORDER_PROPORTION,
-                Some(InputLabel::new("resolution", font, font_size, label_colour))
-            ).await,
+            name: TextBox::new(name_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "name", true), 
+                InputLabel::default_input_box_content(font),
+                "[date]_[time]"
+            ),
+            resolution: DropDown::new(visualiser, res_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "resolution", true), 
+                InputLabel::default_input_box_content(font)).await,
             current_resolution: ScreenshotResolution::R4k,
-            width: ScreenshotMenu::get_textbox(2, "width", "600", visualiser).await,
-            height: ScreenshotMenu::get_textbox(3, "height", "600", visualiser).await,
+            width: TextBox::new(width_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "width", true), 
+                InputLabel::default_input_box_content(font), "600"),
+            height: TextBox::new(height_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "height", true), 
+                InputLabel::default_input_box_content(font), "600"),
             bar_rect,
             bar_grad: get_back_gradient(visualiser, 0, bar_rect.w as u16, bar_rect.h as u16),
             export: Button::new(
@@ -4072,42 +4252,16 @@ impl ScreenshotMenu {
                     screen_width()*PROGRESS_BAR_WIDTH,
                     screen_height()*PROGRESS_BAR_HEIGHT
                 ),
-                Some(InputLabel::new("0%", font, screen_width()*PROGRESS_BAR_FONT_PROPORTION, WHITE))
+                Some(InputLabel::new(
+                    "0%", 
+                    font, 
+                    screen_width()*PROGRESS_BAR_FONT_PROPORTION, 
+                    WHITE, false,
+                    0., TextAlign::Centre // these don't matter for progress bars (yet)
+                ))
             ),
             exporting: false
         }
-    }
-
-    fn get_input_rect(box_i: usize) -> Rect {
-        let start_x = screen_width()*LAYEREDITOR_TEXTBOX_START_X;
-
-        let width =  screen_width()*(MENU_SCREEN_PROPORTION-TEXTBOX_RIGHT_PADDING) - start_x;
-        let height = screen_height()*TEXTBOX_HEIGHT_PROPORTION;
-
-        let top_y = screen_height()*(NAVBAR_HEIGHT_PROPORTION+2.*STATE_TEXT_PADDING_PROPORTION+SCREENSHOT_VERT_PADDING) + 
-                         screen_width()*STATE_TEXT_FONT_PROPORTION;
-        let start_y = top_y + box_i as f32 * (height + screen_height()*LAYEREDITOR_INPUT_BOX_VERT_PADDING);
-
-        Rect::new(start_x, start_y, width, height)
-    }
-    
-    async fn get_textbox(textbox_i: usize, name: &str, default_data: &str, visualiser: &Visualiser) -> TextBox {
-        let font =  load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
-        let font_size = screen_width()*LAYEREDITOR_INPUT_FONT_PROPORTION;
-
-        let rect = ScreenshotMenu::get_input_rect(textbox_i);
-
-        let gradient = get_back_gradient(visualiser, rect.x as u16, rect.w as u16, rect.h as u16);
-        let label_colour = get_brightest_colour(gradient);
-        Texture2D::delete(&gradient);
-
-        TextBox::new(
-            visualiser,
-            Some(InputLabel::new(name, font, font_size, label_colour)),
-            String::from(default_data),
-            rect.w, rect.h, rect.x as u16, rect.y, 
-            TextParams { font, font_size: font_size as u16, color: WHITE, ..Default::default() }
-        )       
     }
 
     fn update_top_menu(&mut self) {
