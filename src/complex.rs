@@ -7,6 +7,8 @@
 use std::ops::{Add, Mul, Div, Sub, Neg};
 use dashu_float::{FBig, round::mode};
 
+use crate::{lerpf64_pow, lerp_fbig_pow};
+
 fn factorial(n: u32) -> u32 {
     let mut result = 1;
     for i in 2..n+1 {
@@ -56,6 +58,15 @@ impl ComplexType {
         }
     }
 
+    /// returns the real part of the number as an FBig, regarless of type
+    pub fn real_fbig(&self) -> FBig {
+        match self {
+            ComplexType::Double(c) => FBig::try_from(c.real).unwrap(),
+            ComplexType::Big(c) => c.real.clone()
+        }
+    }   
+
+   
     pub fn real_string(&self) -> String {
         match self {
             ComplexType::Double(c) => c.real.to_string(),
@@ -71,6 +82,14 @@ impl ComplexType {
         }
     }
 
+    /// returns the imaginary part of the number as an FBig, regarless of type
+    pub fn im_fbig(&self) -> FBig {
+        match self {
+            ComplexType::Double(c) => FBig::try_from(c.im).unwrap(),
+            ComplexType::Big(c) => c.im.clone()
+        }
+    } 
+
     pub fn im_string(&self) -> String {
         match self {
             ComplexType::Double(c) => c.im.to_string(),
@@ -82,6 +101,7 @@ impl ComplexType {
     /// 
     /// # Panics
     /// The other is a `ComplexType::Big`
+    #[allow(unused)]
     fn unpack_double(&self, other: ComplexType) -> Complex {
         match other {
             ComplexType::Double(c) => c,
@@ -93,6 +113,7 @@ impl ComplexType {
     /// 
     /// # Panics
     /// The other is a `ComplexType::Double`
+    #[allow(unused)]
     fn unpack_big(&self, other: ComplexType) -> BigComplex {
         match other {
             ComplexType::Double(_) => panic!("Can't perform operations on different complex types - attempted to unpack big"),
@@ -126,6 +147,7 @@ impl ComplexType {
             ComplexType::Double(c) => {
                 if c.real.to_string() != new {
                     *self = self.make_big();
+                    self.update_real_from_string(new);
                 }
             }
         }
@@ -140,7 +162,27 @@ impl ComplexType {
             ComplexType::Double(c) => {
                 if c.im.to_string() != new {
                     *self = self.make_big();
+                    self.update_real_from_string(new);
                 }
+            }
+        }
+    }
+
+    pub fn lerp_complex(complex1: &ComplexType, complex2: &ComplexType, percent: f64, arb_precision: bool, p: f64) -> ComplexType {
+        match arb_precision {
+            true => {
+                let t = FBig::try_from(percent).unwrap();
+                let p = FBig::try_from(p).unwrap();
+                ComplexType::Big(BigComplex::new(
+                    lerp_fbig_pow(complex1.real_fbig(), complex2.real_fbig(), &t, &p),
+                    lerp_fbig_pow(complex1.im_fbig(), complex2.im_fbig(), &t, &p)
+                ))
+            },
+            false => {
+                ComplexType::Double(Complex::new(
+                    lerpf64_pow(complex1.real_f64(), complex2.real_f64(), percent, p),
+                    lerpf64_pow(complex1.im_f64(), complex2.im_f64(), percent, p),
+                ))
             }
         }
     }

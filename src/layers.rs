@@ -172,10 +172,55 @@ impl LayerType {
         }
     }
 
+    /// gets a mutable reference to the layer's orbit trap
     pub fn get_orbit_trap(&mut self) -> Result<&mut OrbitTrapType, &str> {
         match self {
             LayerType::ColourOrbitTrap(trap) | LayerType::ShadingOrbitTrap(trap) => Ok(trap),
             _ => Err("not a trap")
+        }
+    }
+
+    /// returns the orbit trap of the layer type if it has one
+    fn orbit_trap(&self) -> Option<&OrbitTrapType> {
+        match self {
+            LayerType::ColourOrbitTrap(trap) | LayerType::ShadingOrbitTrap(trap) => Some(trap),
+            _ => None
+        }
+    }    
+
+    fn similar_layer_type(&self, other: &Self) -> bool {
+        match self {
+            LayerType::ColourOrbitTrap(trap) => {
+                let other_trap = other.orbit_trap();
+                match other_trap {
+                    None => false,
+                    Some(t) => trap == t && trap.get_analysis() == t.get_analysis()
+                }
+            },
+            LayerType::ShadingOrbitTrap(trap) => {
+                let other_trap = other.orbit_trap();
+                match other_trap {
+                    None => false,
+                    Some(t) => trap == t && trap.get_analysis() == t.get_analysis()
+                }
+            },
+            this_type => this_type == other
+        } 
+    }
+
+    fn interpolate_similar_layer_types(type1: &LayerType, type2: &LayerType, fraction: f64) -> LayerType {
+        match type1 {
+            LayerType::ColourOrbitTrap(trap) => {
+                LayerType::ColourOrbitTrap(OrbitTrapType::interpolate_similar_traps(
+                    &trap, type2.orbit_trap().unwrap(), fraction
+                ))
+            },
+            LayerType::ShadingOrbitTrap(trap) => {
+                LayerType::ShadingOrbitTrap(OrbitTrapType::interpolate_similar_traps(
+                    &trap, type2.orbit_trap().unwrap(), fraction
+                ))
+            },
+            _ => type1.clone()
         }
     }
 
@@ -628,7 +673,7 @@ impl Layers {
     /// 
     /// a shading layer is being applied to a part of the set
     /// with no other layers acting in the same layer
-    pub fn new(layers: Vec<Layer>) -> Layers {
+    pub fn new(layers: Vec<Layer>, overwrite_names: bool) -> Layers {
         let valid = Layers::valid_layers(&layers);
         if let Err(e) = valid {
             panic!("{e}");
@@ -636,8 +681,10 @@ impl Layers {
 
         let mut layers = layers;
         Layers::place_constraints(&mut layers);
-        for (i, layer) in layers.iter_mut().enumerate() {
-            layer.name = format!("Layer {}", i + 1);
+        if overwrite_names {
+            for (i, layer) in layers.iter_mut().enumerate() {
+                layer.name = format!("Layer {}", i + 1);
+            }
         }
 
         let (implementors, implementor_map) = make_implementors(&layers);
@@ -908,6 +955,33 @@ impl Layers {
         }
     }
 
+    pub fn lerp_layers(layers1: &Layers, layers2: &Layers, percent: f64) -> Layers {
+        let mut layers = Vec::new();
+
+        let one_len = layers1.layers.len();
+        let two_len = layers2.layers.len();
+
+        for i in 0..usize::min(one_len, two_len) {
+            layers.push(Layer::interpolate_layers(&layers1.layers[i], &layers2.layers[i], percent));
+        }
+
+        if one_len > two_len {
+            for i in 0..one_len-two_len {
+                let mut layer = layers1.layers[two_len + i].clone();
+                layer.strength = layer.strength * (1. - percent as f32);
+                layers.push(layer)
+            }
+        } else if two_len > one_len {
+            for i in 0..two_len-one_len {
+                let mut layer = layers2.layers[one_len + i].clone();
+                layer.strength = layer.strength * percent as f32;
+                layers.push(layer)
+            }
+        }
+        
+        Layers::new(layers, false)
+    }
+
     pub fn get_export_string(&self) -> String {
         let mut contents = String::from("");
         for layer in self.layers.iter() {
@@ -917,16 +991,14 @@ impl Layers {
         contents
     }
 
-    pub fn import_from_file(&mut self, layers: &[&str]) {
+    pub fn import_from_file(layers: &[&str]) -> Layers {
         let mut new_layers = Vec::new();
 
         for layer in layers {
             new_layers.push(Layer::import_from_str(layer));
         }
 
-        self.layers = new_layers;
-        Layers::place_constraints(&mut self.layers);
-        self.update_implementors();
+        Layers::new(new_layers, false)
     }
 }
 
@@ -968,7 +1040,7 @@ impl LayerRange {
         match num {
             '0' => LayerRange::InSet,
             '1' => LayerRange::OutSet,
-            '3' => LayerRange::Both,
+            '2' => LayerRange::Both,
             c => panic!("no layer range for {c}")
         }
     }
@@ -1164,6 +1236,36 @@ impl Layer {
         self.final_colour(colour, this_colour)
     }
 
+    fn interpolate_similar_layers(layer1: &Layer, layer2: &Layer, percent: f64) -> Layer {
+        Layer::new(
+            LayerType::interpolate_similar_layer_types(&layer1.layer_type, &layer2.layer_type, percent),
+            layer1.layer_range.clone(),
+            lerp(layer1.strength, layer2.strength, percent as f32),
+            Palette::interpolate_palettes(&layer1.palette, &layer2.palette, percent as f32)
+        )
+    }
+
+    fn interpolate_dissimilar_layers(layer1: &Layer, layer2: &Layer, percent: f64) -> Layer {
+        // https://www.desmos.com/calculator/sm75n9wns0
+        if percent <= 0.5 {
+            let mut layer = layer1.clone();
+            layer.strength = (layer1.strength / -0.5) * (percent as f32 - 0.5);
+            layer
+        } else {
+            let mut layer = layer2.clone();
+            layer.strength = (layer2.strength / 0.5) * (percent as f32 - 0.5);
+            layer
+        }
+    }
+
+    fn interpolate_layers(layer1: &Layer, layer2: &Layer, percent: f64) -> Layer {
+        if layer1 == layer2 {
+            Layer::interpolate_similar_layers(layer1, layer2, percent)
+        } else {
+            Layer::interpolate_dissimilar_layers(layer1, layer2, percent)
+        }
+    }
+
     fn get_export_string(&self) -> String {
         format!["\"{}\"{}-{}-{}[{}]({})",
             self.name,
@@ -1199,5 +1301,13 @@ impl Layer {
         );
         layer.name = name;
         layer
+    }
+}
+impl PartialEq for Layer {
+    fn eq(&self, other: &Self) -> bool {
+        self.layer_type.similar_layer_type(&other.layer_type) &&
+            self.name == other.name &&
+            self.layer_range == other.layer_range &&
+            self.palette.similar_palette(&other.palette)
     }
 }

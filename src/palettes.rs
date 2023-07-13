@@ -6,7 +6,7 @@
 
 use macroquad::prelude::*;
 
-use crate::{menu::DropDownType, interpolate_colour, escape_time, get_str_between};
+use crate::{menu::DropDownType, interpolate_colour, escape_time, get_str_between, lerp};
 use std::collections::HashSet;
 
 /// the number of iteration values in the palette
@@ -72,6 +72,13 @@ impl ColourPoint {
     /// `clamp()`s the percentage between 0 and 1
     fn valid_percent(&self) -> f32 {
         self.percent.clamp(0., 1.)
+    }
+
+    fn interpolate_points(point1: &ColourPoint, point2: &ColourPoint, percent: f32) -> ColourPoint {
+        ColourPoint {
+            colour: interpolate_colour(point1.colour, point2.colour, percent),
+            percent: lerp(point1.percent, point2.percent, percent)
+        } 
     }
 }
 impl Into<ColourPoint> for (Color, f32) {
@@ -339,6 +346,43 @@ impl Palette {
 
         Texture2D::from_image(&image)
     }
+
+    pub fn similar_palette(&self, other: &Self) -> bool {
+        self.mapping_type == other.mapping_type &&
+            self.colour_map.len() == other.colour_map.len()
+    }
+
+    fn remove_extremes(sorted_colour_map: &Vec<ColourPoint>) -> Vec<ColourPoint> {
+        if sorted_colour_map.len() == 2 { return sorted_colour_map.clone();}
+
+        let mut map = sorted_colour_map.clone();
+        map.remove(0);
+        map.remove(map.len()-1);
+
+        map
+    }
+
+    fn interpolate_colour_maps(map1: &Vec<ColourPoint>, map2: &Vec<ColourPoint>, percent: f32) -> Vec<ColourPoint> {
+        let mut colour_map = Vec::with_capacity(map1.len());
+        for i in 0..map1.len() {
+            colour_map.push(ColourPoint::interpolate_points(&map1[i], &map2[i], percent));
+        }
+
+        colour_map
+    }
+
+    pub fn interpolate_palettes(palette1: &Palette, palette2: &Palette, percent: f32) -> Palette {
+        Palette::new(
+            Palette::interpolate_colour_maps(
+                &Palette::remove_extremes(&palette1.sorted_colour_map), 
+                &Palette::remove_extremes(&palette2.sorted_colour_map), 
+                percent
+            ),
+            palette1.mapping_type.clone(),
+            lerp(palette1.palette_length, palette2.palette_length, percent),
+            lerp(palette1.offset, palette2.offset, percent)
+        )
+    }   
 
     fn get_export_map_string(&self) -> String {
         let mut contents = String::from("");

@@ -48,7 +48,7 @@ async fn main() {
             Layer::new(LayerType::ShadingOrbitTrap(OrbitTrapType::Circle(OrbitTrapCircle::new((0.0, 0.0), 10.0, OrbitTrapAnalysis::Distance))), 
                        LayerRange::OutSet, 1.0, 
                        Palette::new_even(vec![WHITE, WHITE, BLACK], MappingType::Constant, 1., 0.0))
-        ])
+        ], true)
     );
 
     // let mut visualiser = Buhddabrot::new(0.005, 2_500., 50_000_000, true);

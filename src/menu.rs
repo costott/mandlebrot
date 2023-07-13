@@ -11,7 +11,8 @@ use super::{
     ScreenDimensions, Visualiser, interpolate_colour, 
     layers::*,
     orbit_trap::*,
-    palettes::*
+    palettes::*,
+    VideoRecorder, VideoTimestamp
 };
 
 /// the proportion of the screen width taken over by the menu
@@ -168,6 +169,24 @@ const PROGRESS_BAR_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/20.;
 /// proportion of the screen height for the padding between the progress bar and percent text
 const PROGRERSS_BAR_TEXT_PADDING: f32 = 1./75.;
 
+/// proportion of the screen height for the height of the timeline
+const VIDEORECORDER_TIMELINE_HEIGHT: f32 = 1./8.;
+/// proportion of the screen height for the vertical padding around the timeline
+const VIDEORECORDER_TIMELINE_VERT_PADDING: f32 = 1./40.;
+/// proportion of the screen height for the height of the timeline line
+const VIDEORECORDER_TIMELINE_LINE_HEIGHT: f32 = VIDEORECORDER_TIMELINE_HEIGHT/20.;
+/// proportion of the screen height for the height of the small bars
+const VIDEORECORDER_TIMELINE_SMALL_BAR_HEIGHT: f32 = VIDEORECORDER_TIMELINE_HEIGHT/2.;
+const VIDEORECORDER_TIMELINE_PREVIEW_BAR_COLOUR: Color = Color { r: 1., g: 1., b: 1., a: 0.5 };
+/// proportion of the screen width for the size of the timeline text
+const VIDEORECORDER_TIMELINE_FONT_PROPORTION: f32 = MENU_SCREEN_PROPORTION/30.;
+/// proportion of the screen width for the vertical padding between the timeline text and timeline
+const VIDEORECORDER_TIMELINE_TEXT_PADDING: f32 = VIDEORECORDER_TIMELINE_FONT_PROPORTION/2.;
+/// proportion of the screen width for the width of the timestamp editors
+const VIDEORECORDER_TIMESTAMP_WIDTH: f32 = MENU_SCREEN_PROPORTION/20.;
+/// proportion of the screen width for the start x of the the textboxes
+const VIDEORECORDER_TEXTBOX_START_X: f32 = MENU_SCREEN_PROPORTION*0.52;
+
 /// gives a texture which is a snippet of the gradient for the menu at the given place
 fn get_back_gradient(visualiser: &Visualiser, start_x: u16, width: u16, height: u16) -> Texture2D {
     let mut image = Image::gen_image_color(width, height, BLACK);
@@ -254,6 +273,7 @@ enum MenuSignal {
     None,
     OpenEditor(usize),
     OpenPalette(usize),
+    RecordVideo,
     RefreshGradients,
     Import
 }
@@ -267,6 +287,7 @@ enum MenuState {
     Screenshot,
     Video,
     PaletteEditor,
+    VideoRecorder,
     /// integer specifies the index of the next menu
     UpdateGradient(usize)
 }
@@ -282,6 +303,10 @@ impl MenuState {
         }
     }
 
+    fn no_navbar(&self) -> bool {
+        self == &MenuState::PaletteEditor || self == &MenuState::VideoRecorder
+    }
+
     fn map_state_indexes(&self) -> usize {
         match self {
             MenuState::General => 0,
@@ -290,8 +315,9 @@ impl MenuState {
             MenuState::Screenshot => 3,
             MenuState::Video => 4,
             MenuState::PaletteEditor => 5,
-            MenuState::Closed => 5,
-            MenuState::UpdateGradient(_) => 6
+            MenuState::VideoRecorder => 6,
+            MenuState::Closed => 7,
+            MenuState::UpdateGradient(_) => 8
         }
     }
 
@@ -302,7 +328,9 @@ impl MenuState {
             MenuState::LayerEditor => "LAYER EDITOR",
             MenuState::Screenshot => "SCREENSHOT",
             MenuState::Video => "VIDEO",
+            // not actually needed
             MenuState::PaletteEditor => "PALETTE EDITOR",
+            MenuState::VideoRecorder => "VIDEO RECORDER",
             _ => ""
         })
     }
@@ -335,13 +363,14 @@ impl MenuState {
             1 => Some(Box::new(LayersMenu::new(visualiser, font).await)),
             2 => Some(Box::new(LayerEditorMenu::new(visualiser).await)),
             3 => Some(Box::new(ScreenshotMenu::new(&visualiser).await)),
+            4 => Some(Box::new(VideoMenu::new(&visualiser).await)),
             5 => Some(Box::new(PaletteEditor::new(&visualiser).await)),
-            // placeholder
+            6 => Some(Box::new(VideoRecorderMenu::new(&visualiser).await)),
             _ => None
         }
     }
 
-    fn refresh_gradients(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 6], visualiser: &mut Visualiser) {
+    fn refresh_gradients(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 7], visualiser: &mut Visualiser) {
         for menu in menus {
             match menu {
                 Some(m) => m.refresh_gradients(visualiser),
@@ -356,7 +385,7 @@ impl MenuState {
 
     async fn process_signal(
         &mut self, 
-        menus: &mut [Option<Box<dyn MenuType>>; 6], 
+        menus: &mut [Option<Box<dyn MenuType>>; 7], 
         visualiser: &mut Visualiser, 
         signal: MenuSignal, 
         font: Font
@@ -383,6 +412,16 @@ impl MenuState {
                 }
                 *self = MenuState::PaletteEditor;
             },
+            MenuSignal::RecordVideo => {
+                if menus[6].is_none() {
+                    menus[6] = self.create_menu(visualiser, 6, font).await
+                }
+                match &mut menus[6] {
+                    None => panic!("video recorder menu failed to be created"),
+                    Some(m) => m.as_mut().open_layer_to_edit(0, visualiser)
+                }
+                *self = MenuState::VideoRecorder;
+            }
             MenuSignal::RefreshGradients => self.refresh_gradients(menus, visualiser),
             MenuSignal::Import => {
                 menus[1] = self.create_menu(visualiser, 1, font).await;
@@ -391,7 +430,7 @@ impl MenuState {
         }
     }
 
-    async fn update_state_menu(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 6], visualiser: &mut Visualiser, index: usize, font: Font) {
+    async fn update_state_menu(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 7], visualiser: &mut Visualiser, index: usize, font: Font) {
         match &mut menus[index] {
             None => {
                 menus[index] = self.create_menu(visualiser, index, font).await;
@@ -404,18 +443,18 @@ impl MenuState {
     }
 
     /// updates the menu for the current state
-    async fn update_state(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 6], visualiser: &mut Visualiser, font: Font) {
+    async fn update_state(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 7], visualiser: &mut Visualiser, font: Font) {
         self.update_state_menu(menus, visualiser, self.map_state_indexes(), font).await;
     }
 
-    fn get_editing_menu(&self, menus: &mut [Option<Box<dyn MenuType>>; 6], index: usize) -> bool {
+    fn get_editing_menu(&self, menus: &mut [Option<Box<dyn MenuType>>; 7], index: usize) -> bool {
         match &mut menus[index] {
             None => {false},
             Some(m) => m.as_mut().get_editing()
         }
     }
 
-    fn get_editing(&self, menus: &mut [Option<Box<dyn MenuType>>; 6]) -> bool {
+    fn get_editing(&self, menus: &mut [Option<Box<dyn MenuType>>; 7]) -> bool {
         match self {
             MenuState::Closed => {false},
             _ => self.get_editing_menu(menus, self.map_state_indexes())
@@ -435,7 +474,7 @@ pub struct Menu {
     open_button: Button,
     close_button: Button,
     navbar: Navbar,
-    menus: [Option<Box<dyn MenuType>>; 6],
+    menus: [Option<Box<dyn MenuType>>; 7],
     updated_gradient: bool
 }
 impl Menu {
@@ -481,7 +520,7 @@ impl Menu {
                 vec![Box::new(ButtonColourElement::new(BLACK, (20., 20.), (0., 0.), 2))]
             ),
             navbar: Navbar::new().await,
-            menus: [None, None, None, None, None, None],
+            menus: [None, None, None, None, None, None, None],
             updated_gradient: false
         }
     }
@@ -531,7 +570,7 @@ impl Menu {
 
         self.state = self.navbar.update(self.state, self.state_font, self.text_colour);
 
-        if self.state == MenuState::PaletteEditor { return }
+        if self.state.no_navbar() { return }
 
         self.close_button.update();
         if self.close_button.clicked {
@@ -658,6 +697,22 @@ impl ButtonGradientElement{
             draw_order
         }
     }
+
+    /// if a layer_i is provided, the gradient is the full palette
+    /// if not, the gradient is the back gradient
+    fn full_back(
+        visualiser: &Visualiser,
+        layer_i: Option<usize>,
+        button_rect: &Rect,
+        alpha_colour: Color,
+        draw_order: usize
+    ) -> ButtonGradientElement {
+        ButtonGradientElement::new(
+            visualiser, layer_i,
+            button_rect.point().into(), button_rect.size().into(),
+            (0., 0.), alpha_colour, draw_order
+        )
+    }
 }
 impl ButtonElement for ButtonGradientElement {
     fn draw(&self, button_rect: &Rect) {
@@ -698,6 +753,15 @@ impl ButtonColourElement {
     fn new(colour: Color, size: (f32, f32), offset: (f32, f32), draw_order: usize) -> ButtonColourElement {
         ButtonColourElement { colour, size, offset, draw_order }
     }
+
+    fn full_button(button_rect: &Rect, colour: Color, draw_order: usize) -> ButtonColourElement {
+        ButtonColourElement::new(colour, button_rect.size().into(), (0., 0.), draw_order)
+    }
+
+    fn inner_from_border(button_rect: &Rect, border_size: f32, draw_order: usize) -> ButtonColourElement {
+        let inner_rect = inflate_rect(button_rect, -border_size);
+        ButtonColourElement::new(BLACK, inner_rect.size().into(), (border_size, border_size), draw_order)
+    }
 }
 impl ButtonElement for ButtonColourElement {
     fn draw(&self, button_rect: &Rect) {
@@ -728,11 +792,83 @@ impl Button {
         hover_elements: Vec<Box<dyn ButtonElement>>,
         hold_elements: Vec<Box<dyn ButtonElement>>,
     ) -> Button {
-        Button { 
-            rect: Rect::new(topleft.0, topleft.1, size.0, size.1),
+        let rect = Rect::new(topleft.0, topleft.1, size.0, size.1);
+        Button::from_rect(&rect, back_elements, hover_elements, hold_elements)
+    }
+
+    fn from_rect(
+        rect: &Rect,
+        back_elements: Vec<Box<dyn ButtonElement>>,
+        hover_elements: Vec<Box<dyn ButtonElement>>,
+        hold_elements: Vec<Box<dyn ButtonElement>>,
+    ) -> Button {
+        Button {
+            rect: rect.clone(),
             back_elements, hover_elements, hold_elements,
             clicked: false, hovering: false, holding: false
         }
+    }
+
+    /// returns a new button which has a gradient border
+    /// with a given image inside
+    /// 
+    /// the dest size of image params can be ignored
+    fn gradient_border_and_image(
+        visualiser: &Visualiser,
+        rect: &Rect,
+        border_size: f32,
+        image: Image,
+        image_params: DrawTextureParams,
+        hover_colour: Color,
+        hold_colour: Color
+    ) -> Button {
+        let inner_rect = inflate_rect(rect, -border_size);
+        let mut image_params = image_params.clone();
+        image_params.dest_size = Some(inner_rect.size());
+
+        Button::from_rect(
+            rect,
+            vec![
+                Box::new(ButtonGradientElement::full_back(visualiser, None, rect, WHITE, 0)),
+                Box::new(ButtonColourElement::inner_from_border(rect, border_size, 1)),
+                Box::new(ButtonImageElement::new(image, 1., image_params, (border_size, border_size), 2))
+            ],
+            vec![Box::new(ButtonColourElement::full_button(rect, hover_colour, 3))],
+            vec![Box::new(ButtonColourElement::full_button(rect, hold_colour, 4))]
+        )
+    }
+
+    fn gradient_border_and_alternating_image(
+        visualiser: &Visualiser,
+        rect: &Rect,
+        border_size: f32,
+        main_image: Image,
+        main_params: DrawTextureParams,
+        hover_image: Image,
+        hover_params: DrawTextureParams,
+        hover_colour: Color,
+        hold_colour: Color
+    ) -> Button {
+        let inner_rect = inflate_rect(rect, -border_size);
+        let mut main_params = main_params.clone();
+        main_params.dest_size = Some(inner_rect.size());
+        let mut hover_params = hover_params.clone();
+        hover_params.dest_size = Some(inner_rect.size());
+
+        Button::from_rect(
+            rect,
+            vec![
+                Box::new(ButtonGradientElement::full_back(visualiser, None, rect, WHITE, 0)),
+                Box::new(ButtonColourElement::inner_from_border(rect, border_size, 1)),
+                Box::new(ButtonImageElement::new(main_image, 1., main_params, (border_size, border_size), 2))
+            ],
+            vec![
+                Box::new(ButtonColourElement::inner_from_border(rect, border_size, 3)),
+                Box::new(ButtonImageElement::new(hover_image, 1., hover_params, (border_size, border_size), 4)),
+                Box::new(ButtonColourElement::full_button(rect, hover_colour, 5))
+            ],
+            vec![Box::new(ButtonColourElement::full_button(rect, hold_colour, 6))]
+        )
     }
 
     /// call while button is active to carry out its tasks
@@ -829,7 +965,7 @@ impl Navbar {
     /// 
     /// returns the menu state the menu should be in
     fn update(&mut self, menu_state: MenuState, state_font: Font, text_colour: Color) -> MenuState {
-        if menu_state == MenuState::PaletteEditor {
+        if menu_state.no_navbar() {
             return menu_state;
         }
         
@@ -1087,6 +1223,7 @@ impl GradientInputBox {
         GradientInputBox::from_input_box(visualiser, self.input_box.next_vert(vert_padding, down))
     }
 
+    #[allow(unused)]
     fn skip_space_vert(&self, visualiser: &Visualiser, skip_size: f32, down: bool) -> GradientInputBox {
         GradientInputBox::from_input_box(visualiser, self.input_box.skip_space_vert(skip_size, down))
     }
@@ -1109,18 +1246,19 @@ impl GradientInputBox {
     }
 }
 
-enum RectAlign {
-    Centre,
-    Left(bool),
-    Right(bool),
-    Top(bool),
-    Bottom(bool)
-}
-impl RectAlign {
-    fn get_topleft(alignment: RectAlign, rect: &Rect, container: &InputBox) -> (f32, f32) {
-        todo!()
-    }
-}
+// TODO: rect alignment
+// enum RectAlign {
+//     Centre,
+//     Left(bool),
+//     Right(bool),
+//     Top(bool),
+//     Bottom(bool)
+// }
+// impl RectAlign {
+//     fn get_topleft(alignment: RectAlign, rect: &Rect, container: &InputBox) -> (f32, f32) {
+//         todo!()
+//     }
+// }
 
 /// alignement of text relative to a text box
 /// 
@@ -2095,9 +2233,13 @@ impl ProgressBar {
         if !active && bar_rect.w as usize > 0 {
             self.draw_not_active();
         } else if bar_rect.w as usize > 0 {
-            let image = match current_percent == self.percent_cache {
-                true => self.image_cache.clone(),
-                false => self.gradient.sub_image(bar_rect)
+            let image = if current_percent < 1. {
+                match current_percent == self.percent_cache {
+                    true => self.image_cache.clone(),
+                    false => self.gradient.sub_image(bar_rect)
+                }
+            } else {
+                self.gradient.clone()
             };
             Texture2D::delete(&self.bar);
             self.bar = Texture2D::from_image(&image);
@@ -2388,9 +2530,16 @@ impl LayerManager {
         let name_textbox_height = screen_height()*LAYERMANAGER_NAME_TEXTBOX_HEIGHT;
 
         let palette_size = screen_height()*LAYERMANAGER_PALETTE_HEIGHT_PROPORTION;
+        let pallete_button_rect = Rect::new(
+            screen_width()*LAYERMANAGER_INNER_LEFT_PADDING, 
+            screen_height()*LAYERMANAGER_INNER_TOP_PADDING,
+            palette_size, palette_size
+        );
         let edit_button_x = inner_rect.w*LAYERMANAGER_HALF_END_PROPORION + 
             screen_width()*LAYERMANAGER_INNER_LEFT_PADDING;
         let edit_button_border = screen_height()*LAYERMANAGER_EDIT_BUTTON_BORDER_HEIGHT;
+        let mut edit_button_rect = pallete_button_rect.clone();
+        edit_button_rect.x = edit_button_x;
 
         let layer_range_dropdown_y = palette_size + 2.*screen_height()*LAYERMANAGER_INNER_TOP_PADDING;
         // let layer_range_dropdown_y = inner_rect.y + screen_height()*LAYERMANAGER_INNER_TOP_PADDING;
@@ -2399,6 +2548,11 @@ impl LayerManager {
 
         let delete_button_size = screen_height()*LAYERMANAGER_DELETE_BUTTON_SIZE;
         let delete_button_x_offset = inner_rect.w-delete_button_size-screen_height()*LAYERMANAGER_INNER_LEFT_PADDING;
+        let delete_button_rect = Rect::new(
+            delete_button_x_offset, 
+            screen_height()*LAYERMANAGER_INNER_TOP_PADDING,
+            delete_button_size, delete_button_size
+        );
 
         LayerManager { 
             border_back: get_back_gradient(
@@ -2408,24 +2562,19 @@ impl LayerManager {
                 outer_rect.h as u16
             ), 
             outer_rect, inner_rect,
-            palette_button: Button::new(
-                (palette_size, palette_size),
-                (screen_width()*LAYERMANAGER_INNER_LEFT_PADDING, screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
-                vec![Box::new(ButtonGradientElement::new(
-                    visualiser,
-                    Some(layer_num),
-                    (screen_width()*LAYERMANAGER_INNER_LEFT_PADDING, screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
-                    (palette_size, palette_size),
-                    (0., 0.), WHITE, 0
+            palette_button: Button::from_rect(
+                &pallete_button_rect,
+                vec![Box::new(ButtonGradientElement::full_back(
+                    visualiser, Some(layer_num), &pallete_button_rect, WHITE, 0
                 ))],
                 vec![
-                    Box::new(ButtonColourElement::new(Color::new(0., 0., 0., 0.5), (palette_size, palette_size), (0., 0.), 1)),
+                    Box::new(ButtonColourElement::full_button(&pallete_button_rect, Color::new(0., 0., 0., 0.5), 1)),
                     Box::new(ButtonImageElement::new(
-                        load_image("assets/wrench.png").await.unwrap(), 0.7, 
-                        DrawTextureParams { dest_size: Some(Vec2::new(palette_size, palette_size)), ..Default::default() },
+                        load_image("assets/wrench.png").await.unwrap(), 0.7,
+                        DrawTextureParams { dest_size: Some(pallete_button_rect.size()), ..Default::default() },
                         (0., 0.), 2
                     ))
-                ], 
+                ],
                 vec![]
             ),
             name: TextBox::new(
@@ -2448,29 +2597,10 @@ impl LayerManager {
                 ), ""
             ),
             layer_type_text_params,
-            edit_button: Button::new(
-                (palette_size, palette_size),
-                (edit_button_x, screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
-                vec![
-                    Box::new(ButtonGradientElement::new(
-                        visualiser,
-                        None,
-                        (edit_button_x, screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
-                        (palette_size, palette_size),
-                        (0., 0.), WHITE, 0
-                    )),
-                    Box::new(ButtonColourElement::new(BLACK, 
-                        (palette_size-2.*edit_button_border, palette_size-2.*edit_button_border), (edit_button_border, edit_button_border),
-                        1
-                    )),
-                    Box::new(ButtonImageElement::new(
-                        load_image("assets/wrench.png").await.unwrap(), 0.7, 
-                        DrawTextureParams { dest_size: Some(Vec2::new(palette_size, palette_size)), ..Default::default() },
-                        (0., 0.), 2
-                    ))
-                ],
-                vec![Box::new(ButtonColourElement::new( HOVER_WHITE_OVERLAY, (palette_size, palette_size), (0., 0.), 3 ))], 
-                vec![]
+            edit_button: Button::gradient_border_and_image(
+                visualiser, &edit_button_rect, edit_button_border, 
+                load_image("assets/wrench.png").await.unwrap(), DrawTextureParams::default(),
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             strength_slider: generate_strength_slider(strength_slider_text_params, inner_rect, layer.strength),
             layer_range_dropdown: DropDown::new(
@@ -2489,34 +2619,10 @@ impl LayerManager {
                 TextAlign::Left(true)
                 )
             ).await,
-            delete_button: Button::new(
-                (delete_button_size, delete_button_size),
-                (delete_button_x_offset, screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
-                vec![
-                    Box::new(ButtonGradientElement::new(
-                        visualiser,
-                        None,
-                        (delete_button_x_offset, screen_height()*LAYERMANAGER_INNER_TOP_PADDING),
-                        (delete_button_size, delete_button_size),
-                        (0., 0.), WHITE, 0
-                    )),
-                    Box::new(ButtonColourElement::new(
-                        BLACK, (delete_button_size-2.*edit_button_border, delete_button_size-2.*edit_button_border),
-                        (edit_button_border, edit_button_border), 1
-                    )),
-                    Box::new(ButtonImageElement::new(
-                        load_image("assets/cross.png").await.unwrap(), 1.,
-                        DrawTextureParams { dest_size: Some((delete_button_size-2.*edit_button_border, delete_button_size-2.*edit_button_border).into()),
-                            ..Default::default() },
-                        (edit_button_border, edit_button_border), 2
-                    ))
-                ],
-                vec![Box::new(ButtonColourElement::new(
-                        HOVER_WHITE_OVERLAY, (delete_button_size, delete_button_size), (0., 0.), 3
-                ))],
-                vec![Box::new(ButtonColourElement::new(
-                    HOVER_RED_OVERLAY, (delete_button_size, delete_button_size), (0., 0.), 4
-                ))]
+            delete_button: Button::gradient_border_and_image(
+                visualiser, &delete_button_rect, edit_button_border, 
+                load_image("assets/cross.png").await.unwrap(), DrawTextureParams::default(),
+                HOVER_WHITE_OVERLAY, HOVER_RED_OVERLAY
             ),
             drag_rect: Rect::new(
                 drag_x,
@@ -3398,102 +3504,30 @@ fn color_with_params(colour: &Color, r: Option<f32>, g: Option<f32>, b: Option<f
     }
 }
 
-struct ColourPointEditor {
-    map_rect: Rect,
+struct PercentageEditor {
+    domain_rect: Rect,
     rect: Rect,
-    colour: Color,
     selected: bool,
     deselect_y: f32,
-    selected_x_offset: f32,
-    outer_select_box: Rect,
-    inner_select_box: Rect
+    selected_x_offset: f32
 }
-impl ColourPointEditor {
-    fn new(colour_point: &ColourPoint, map_rect: Rect) -> ColourPointEditor {
-        let width = screen_width()*PALETTEEDITOR_COLOUR_POINT_WIDTH;
-        let select_width = screen_width()*PALETTEEDITOR_COLOUR_POINT_SELECT_WIDTH;
-        let x = map_rect.x - width/2. + colour_point.percent*map_rect.w;
-
-        let outer_select_box = Rect::new(
-            x + (width-select_width)/2.,
-            map_rect.top(),
-            select_width,
-            map_rect.h
-        );
-
-        ColourPointEditor { 
-            map_rect,
-            rect: Rect::new(
-                x,
-                map_rect.bottom(),
-                width,
-                2. * width
-            ),
-            colour: colour_point.colour,
-            selected: false,
-            deselect_y: map_rect.bottom() + 2.* width + screen_height()*PALETTEEDITOR_VERT_PADDING,
-            selected_x_offset: 0.0,
-            outer_select_box,
-            inner_select_box: inflate_rect(&outer_select_box, -screen_width()*PALETTEEDITOR_COLOUR_POINT_SELECT_BORDER_WIDTH)
-        }
+impl PercentageEditor {
+    fn new(domain_rect: &Rect, rect: Rect) -> PercentageEditor {
+        PercentageEditor { 
+            domain_rect: domain_rect.clone(), 
+            rect, 
+            selected: false, 
+            deselect_y: domain_rect.bottom() + rect.h + screen_height()*PALETTEEDITOR_VERT_PADDING,
+            selected_x_offset: 0.0
+         }
     }
 
-    fn translate_to(&mut self, new_x: f32) -> Option<f32> {
-        let old_x = self.rect.x;
-
-        self.rect.x = new_x;
-        self.rect.x = self.rect.x.clamp(self.map_rect.x - self.rect.w/2., self.map_rect.right() - self.rect.w/2.);
-
-        let delta = self.rect.x - old_x;
-        self.outer_select_box.x += delta;
-        self.inner_select_box.x += delta;
-
-        match delta == 0.0 {
-            true => None,
-            false => Some( (self.rect.center().x - self.map_rect.x) / self.map_rect.w )
-        }
-    }
-
-    /// draw and update the `ColourPointEditor`
-    /// 
     /// # Returns
-    /// None if the point was unchanged
-    /// Some(new percentage) if the point was changed 
+    /// 
+    /// None if the percentage was unchanged
+    /// Some(new percentage) if the percentage was changed
     fn update(&mut self, other_selected: bool) -> Option<f32> {
-        self.draw();
         self.mouse_interact(other_selected)
-    }
-    
-    fn draw(&self) {
-        let color = match self.selected {
-            true => WHITE,
-            false => LAYERMANAGER_LAYER_TYPE_COLOUR
-        };
-
-        draw_triangle(
-            Vec2::new(self.rect.x + self.rect.w/2., self.rect.y),
-            Vec2::new(self.rect.x, self.rect.y + self.rect.h/2.),
-            Vec2::new(self.rect.x + self.rect.w, self.rect.y + self.rect.h/2.),
-            color
-        );
-        draw_rectangle(
-            self.rect.x,
-            self.rect.y + self.rect.h/2.,
-            self.rect.w,
-            self.rect.h/2.,
-            color
-        );
-        draw_circle(
-            self.rect.x + self.rect.w/2.,
-            self.rect.y + self.rect.h * 0.75,
-            self.rect.w * 0.4,
-            self.colour
-        );
-
-        if !self.selected { return }
-
-        draw_rect(&self.outer_select_box, WHITE);
-        draw_rect(&self.inner_select_box, self.colour);
     }
 
     fn mouse_interact(&mut self, other_selected: bool) -> Option<f32> {
@@ -3515,6 +3549,92 @@ impl ColourPointEditor {
         } else {
             None
         }
+    }
+
+    fn translate_to(&mut self, new_x: f32) -> Option<f32> {
+        let old_x = self.rect.x;
+
+        self.rect.x = new_x;
+        self.rect.x = self.rect.x.clamp(self.domain_rect.x - self.rect.w/2., self.domain_rect.right() - self.rect.w/2.);
+
+        let delta = self.rect.x - old_x;
+
+        match delta == 0.0 {
+            true => None,
+            false => Some( self.get_percent() )
+        }
+    }
+
+    fn get_percent(&self) -> f32 {
+        (self.rect.center().x - self.domain_rect.x) / self.domain_rect.w
+    }
+}
+
+struct ColourPointEditor {
+    percentage_editor: PercentageEditor,
+    colour: Color,
+    outer_select_box: Rect,
+    inner_select_box: Rect
+}
+impl ColourPointEditor {
+    fn new(colour_point: &ColourPoint, map_rect: Rect) -> ColourPointEditor {
+        let width = screen_width()*PALETTEEDITOR_COLOUR_POINT_WIDTH;
+        let select_width = screen_width()*PALETTEEDITOR_COLOUR_POINT_SELECT_WIDTH;
+        let x = map_rect.x - width/2. + colour_point.percent*map_rect.w;
+
+        let outer_select_box = Rect::new(
+            x + (width-select_width)/2.,
+            map_rect.top(),
+            select_width,
+            map_rect.h
+        );
+
+        ColourPointEditor { 
+            percentage_editor: PercentageEditor::new(
+                &map_rect, 
+                Rect::new(x, map_rect.bottom(), width, 2. * width)
+            ),
+            colour: colour_point.colour,
+            outer_select_box,
+            inner_select_box: inflate_rect(&outer_select_box, -screen_width()*PALETTEEDITOR_COLOUR_POINT_SELECT_BORDER_WIDTH)
+        }
+    }
+
+    /// draw and update the `ColourPointEditor`
+    /// 
+    /// # Returns
+    /// None if the point was unchanged
+    /// Some(new percentage) if the point was changed 
+    fn update(&mut self, other_selected: bool) -> Option<f32> {
+        self.draw();
+        let output = self.percentage_editor.mouse_interact(other_selected);
+        
+        self.outer_select_box.x = self.percentage_editor.rect.center().x - self.outer_select_box.w/2.;
+        self.inner_select_box.x = self.percentage_editor.rect.center().x - self.inner_select_box.w/2.;
+
+        output
+    }
+    
+    fn draw(&self) {
+        let color = match self.percentage_editor.selected {
+            true => WHITE,
+            false => LAYERMANAGER_LAYER_TYPE_COLOUR
+        };
+
+        let rect = &self.percentage_editor.rect;
+        draw_triangle(
+            Vec2::new(rect.center().x, rect.y),
+            Vec2::new(rect.x, rect.center().y),
+            Vec2::new(rect.right(), rect.center().y),
+            color
+        );
+        draw_rectangle(rect.x,rect.center().y,rect.w,rect.h/2.,color);
+        draw_circle(rect.center().x,rect.y + rect.h * 0.75,rect.w * 0.4,self.colour);
+
+        if !self.percentage_editor.selected { return }
+
+        draw_rect(&self.outer_select_box, WHITE);
+        draw_rect(&self.inner_select_box, self.colour);
     }
 }
 
@@ -3559,8 +3679,21 @@ impl PaletteEditor {
 
         let button_size = screen_width()*PALETTEEDITOR_BUTTON_WIDTH;
         let button_border = screen_width()*PALETTEEDIOR_BUTTON_BORDER_WIDTH;
-        let inner_button_size = button_size - 2.*button_border;
-        let delete_button_start_x = screen_width()*(MENU_SCREEN_PROPORTION-PALETTEEDITOR_HOR_PADDING)-button_size;
+        let add_rect = Rect::new(
+            start_x, 
+            title_rect.h + 2.*vert_padding + screen_height()*PALETTEEDITOR_PALETTE_HEIGHT
+                +screen_width()*2.*PALETTEEDITOR_COLOUR_POINT_WIDTH,
+            button_size, button_size
+        );
+        let mut delete_rect = add_rect.clone();
+        delete_rect.x = screen_width()*(MENU_SCREEN_PROPORTION-PALETTEEDITOR_HOR_PADDING)-button_size;
+        let sumbit_rect = Rect::new(
+            screen_width()*(MENU_SCREEN_PROPORTION/2. - PALETTEEDITOR_HOR_PADDING/2.) - button_size, 
+            screen_height() - button_size - vert_padding,
+            button_size, button_size
+        );
+        let mut cancel_rect = sumbit_rect.clone();
+        cancel_rect.x = screen_width()*(MENU_SCREEN_PROPORTION/2. + PALETTEEDITOR_HOR_PADDING/2.);
 
         let bar_bottom = title_rect.h + 
             vert_padding*4. + 
@@ -3600,80 +3733,15 @@ impl PaletteEditor {
             ),
             colour_map_texture: Texture2D::empty(),
             colour_point_editors: Vec::new(),
-            add_button: Button::new(
-                (button_size, button_size),
-                (start_x, title_rect.h + 2.*vert_padding + screen_height()*PALETTEEDITOR_PALETTE_HEIGHT
-                        +screen_width()*2.*PALETTEEDITOR_COLOUR_POINT_WIDTH),
-                vec![
-                    Box::new(ButtonGradientElement::new(
-                        visualiser, None,
-                        (start_x, title_rect.h + 2.*vert_padding + screen_height()*PALETTEEDITOR_PALETTE_HEIGHT
-                        +screen_width()*2.*PALETTEEDITOR_COLOUR_POINT_WIDTH),
-                        (button_size, button_size),
-                        (0., 0.), WHITE, 0
-                    )),
-                    Box::new(ButtonColourElement::new(
-                        BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 1
-                    )),
-                    Box::new(ButtonImageElement::new(
-                        load_image("assets/plus.png").await.unwrap(),
-                        1.0,
-                        DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
-                        (button_border, button_border),
-                        2
-                    ))
-                ],
-                vec![Box::new(ButtonColourElement::new(
-                    HOVER_WHITE_OVERLAY, (button_size, button_size), (0., 0.), 3
-                ))],
-                vec![Box::new(ButtonColourElement::new(
-                    HOVER_BLACK_OVERLAY, (button_size, button_size), (0., 0.), 4
-                ))]
+            add_button: Button::gradient_border_and_image(visualiser, &add_rect, 
+                button_border, load_image("assets/plus.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
-            delete_button: Button::new(
-                (button_size, button_size),
-                (delete_button_start_x, 
-                        title_rect.h + 2.*vert_padding + screen_height()*PALETTEEDITOR_PALETTE_HEIGHT
-                            +screen_width()*2.*PALETTEEDITOR_COLOUR_POINT_WIDTH),
-                vec![
-                    Box::new(ButtonGradientElement::new(
-                        visualiser,
-                        None,
-                        (delete_button_start_x, 
-                            title_rect.h + 2.*vert_padding + screen_height()*PALETTEEDITOR_PALETTE_HEIGHT
-                                +screen_width()*2.*PALETTEEDITOR_COLOUR_POINT_WIDTH),
-                        (button_size, button_size),
-                        (0., 0.), WHITE, 0
-                    )),
-                    Box::new(ButtonColourElement::new(
-                        BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 1
-                    )),
-                    Box::new(ButtonImageElement::new(
-                        load_image("assets/bin.png").await.unwrap(),
-                        1.0,
-                        DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
-                        (button_border, button_border),
-                        2
-                    ))
-                ],
-                vec![
-                    Box::new(ButtonColourElement::new(
-                        BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 3
-                    )),
-                    Box::new(ButtonImageElement::new(
-                        load_image("assets/binOpen.png").await.unwrap(),
-                        1.0,
-                        DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
-                        (button_border, button_border),
-                        4
-                    )),
-                    Box::new(ButtonColourElement::new(
-                        HOVER_WHITE_OVERLAY, (button_size, button_size), (0., 0.), 5
-                ))
-                ],
-                vec![Box::new(ButtonColourElement::new(
-                    HOVER_BLACK_OVERLAY, (button_size, button_size), (0., 0.), 6
-                ))]
+            delete_button: Button::gradient_border_and_alternating_image(
+                visualiser, &delete_rect, button_border, 
+                load_image("assets/bin.png").await.unwrap(), DrawTextureParams::default(),
+                load_image("assets/binOpen.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             red_slider: PaletteEditor::get_slider(0, visualiser, font, title_rect.h, vert_padding),
             green_slider: PaletteEditor::get_slider(1, visualiser, font, title_rect.h, vert_padding),
@@ -3696,67 +3764,16 @@ impl PaletteEditor {
             ).await,
             length_slider: PaletteEditor::get_slider(4, visualiser, font, title_rect.h, vert_padding),
             offset_slider: PaletteEditor::get_slider(5, visualiser, font, title_rect.h, vert_padding),
-            sumbit_button: Button::new(
-                (button_size, button_size),
-                (screen_width()*(MENU_SCREEN_PROPORTION/2. - PALETTEEDITOR_HOR_PADDING/2.) - button_size, 
-                         screen_height() - button_size - vert_padding),
-                vec![
-                    Box::new(ButtonGradientElement::new(
-                        visualiser, None,
-                        (screen_width()*(MENU_SCREEN_PROPORTION/2. - PALETTEEDITOR_HOR_PADDING/2.) - button_size, 
-                         screen_height() - button_size - vert_padding),
-                        (button_size, button_size),
-                        (0., 0.), WHITE, 0
-                    )),
-                    Box::new(ButtonColourElement::new(
-                        BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 1
-                    )),
-                    Box::new(ButtonImageElement::new(
-                        load_image("assets/tick.png").await.unwrap(),
-                        1.0,
-                        DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
-                        (button_border, button_border),
-                        2
-                    ))
-                ],
-                vec![Box::new(ButtonColourElement::new(
-                    HOVER_WHITE_OVERLAY, (button_size, button_size), (0., 0.), 3
-                ))],
-                vec![Box::new(ButtonColourElement::new(
-                    HOVER_BLACK_OVERLAY, (button_size, button_size), (0., 0.), 4
-                ))]
+            sumbit_button: Button::gradient_border_and_image(
+                visualiser, &sumbit_rect, button_border, 
+                load_image("assets/tick.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
-            cancel_button: Button::new(
-                (button_size, button_size),
-                (screen_width()*(MENU_SCREEN_PROPORTION/2. + PALETTEEDITOR_HOR_PADDING/2.), 
-                         screen_height() - button_size - vert_padding),
-                vec![
-                    Box::new(ButtonGradientElement::new(
-                        visualiser, None,
-                        (screen_width()*(MENU_SCREEN_PROPORTION/2. + PALETTEEDITOR_HOR_PADDING/2.), 
-                         screen_height() - button_size - vert_padding),
-                        (button_size, button_size),
-                        (0., 0.),
-                        WHITE, 0
-                    )),
-                    Box::new(ButtonColourElement::new(
-                        BLACK, (inner_button_size, inner_button_size), (button_border, button_border), 1
-                    )),
-                    Box::new(ButtonImageElement::new(
-                        load_image("assets/cross.png").await.unwrap(),
-                        1.0,
-                        DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
-                        (button_border, button_border),
-                        2
-                    ))
-                ],
-                vec![Box::new(ButtonColourElement::new(
-                    HOVER_WHITE_OVERLAY, (button_size, button_size), (0., 0.), 3
-                ))],
-                vec![Box::new(ButtonColourElement::new(
-                    HOVER_BLACK_OVERLAY, (button_size, button_size), (0., 0.), 4
-                ))]
-            ),
+            cancel_button: Button::gradient_border_and_image(
+                visualiser, &cancel_rect, button_border,
+                load_image("assets/cross.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
+            )
         }
     }
 
@@ -3910,7 +3927,6 @@ impl PaletteEditor {
         self.delete_button.update();
         if !self.delete_button.clicked { return false }
 
-        self.delete_button.hovering = false;
         palette.delete_point(index);
         self.load_colour_points(palette);
         true
@@ -4003,7 +4019,7 @@ impl MenuType for PaletteEditor {
                     changed_this_frame = true;
                 }
             }
-            if point_editor.selected { selected_point = Some(i) }
+            if point_editor.percentage_editor.selected { selected_point = Some(i) }
         }
 
         let palette = &mut visualiser.layers.layers[self.layer_index].palette;
@@ -4129,6 +4145,16 @@ enum ScreenshotResolution {
     R8k,
     Custom
 }
+impl ScreenshotResolution {
+    fn to_screen_dimensions(&self, width: usize, height: usize) -> ScreenDimensions {
+        ScreenDimensions::from_tuple(match self {
+            ScreenshotResolution::R1080p => ScreenDimensions::tuple_1080p(),
+            ScreenshotResolution::R4k => ScreenDimensions::tuple_4k(),
+            ScreenshotResolution::R8k => ScreenDimensions::tuple_8k(),
+            ScreenshotResolution::Custom => (width, height)
+        })
+    }
+}
 impl DropDownType<ScreenshotResolution> for ScreenshotResolution {
     fn get_variants() -> Vec<ScreenshotResolution> {
         vec![
@@ -4182,9 +4208,16 @@ impl ScreenshotMenu {
 
         let button_size = screen_width()*SCREENSHOT_BUTTON_WIDTH;
         let button_border = screen_width()*SCREENSHOT_BUTTON_BORDER_WIDTH;
-        let inner_button_size = button_size - 2. * button_border;
         let button_x_padding = screen_width()*TEXTBOX_RIGHT_PADDING;
 
+        let export_rect = Rect::new(
+            button_x_padding, bar_rect.y + screen_height()*SCREENSHOT_VERT_PADDING,
+            button_size, button_size
+        );
+        let mut cancel_rect = export_rect.clone();
+        cancel_rect.x = screen_width()*MENU_SCREEN_PROPORTION - button_size - button_x_padding;
+        let mut import_rect = export_rect.clone();
+        import_rect.y += screen_height()*SCREENSHOT_VERT_PADDING + button_size;
 
         ScreenshotMenu {
             name: TextBox::new(name_input_box, 
@@ -4204,116 +4237,20 @@ impl ScreenshotMenu {
                 InputLabel::default_input_box_content(font), "600"),
             bar_rect,
             bar_grad: get_back_gradient(visualiser, 0, bar_rect.w as u16, bar_rect.h as u16),
-            export: Button::new(
-                (button_size, button_size),
-                (button_x_padding, bar_rect.y + screen_height()*SCREENSHOT_VERT_PADDING),
-                vec![
-                    Box::new(ButtonGradientElement::new(
-                        visualiser, None,
-                        (button_x_padding, bar_rect.y + screen_height()*SCREENSHOT_VERT_PADDING),
-                        (button_size, button_size),
-                        (0., 0.), WHITE, 0
-                    )),
-                    Box::new(ButtonColourElement::new(
-                        BLACK,
-                        (inner_button_size, inner_button_size),
-                        (button_border, button_border),
-                        1
-                    )),
-                    Box::new(ButtonImageElement::new(
-                        load_image("assets/export.png").await.unwrap(), 
-                        1., 
-                        DrawTextureParams { dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default() }, 
-                        (button_border, button_border), 
-                        2
-                    ))
-                ],
-                vec![Box::new(ButtonColourElement::new(
-                    HOVER_WHITE_OVERLAY,
-                    (button_size, button_size),
-                    (0., 0.),
-                    3
-                ))],
-                vec![Box::new(ButtonColourElement::new(
-                    HOVER_BLACK_OVERLAY,
-                    (button_size, button_size),
-                    (0., 0.),
-                    4
-                ))]
+            export: Button::gradient_border_and_image
+            (visualiser, &export_rect, button_border, 
+                load_image("assets/export.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
-            cancel: Button::new(
-                (button_size, button_size),
-                (screen_width()*MENU_SCREEN_PROPORTION - button_size - button_x_padding, bar_rect.y + screen_height()*SCREENSHOT_VERT_PADDING),
-                vec![
-                    Box::new(ButtonGradientElement::new(
-                        visualiser, None,
-                        (screen_width()*MENU_SCREEN_PROPORTION - button_size - button_x_padding, bar_rect.y + screen_height()*SCREENSHOT_VERT_PADDING),
-                        (button_size, button_size),
-                        (0., 0.), WHITE, 0
-                    )),
-                    Box::new(ButtonColourElement::new(
-                        BLACK,
-                        (inner_button_size, inner_button_size),
-                        (button_border, button_border),
-                        1
-                    )),
-                    Box::new(ButtonImageElement::new(
-                        load_image("assets/stop.png").await.unwrap(), 
-                        1., 
-                        DrawTextureParams { dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default() }, 
-                        (button_border, button_border), 
-                        2
-                    ))
-                ],
-                vec![Box::new(ButtonColourElement::new(
-                    HOVER_WHITE_OVERLAY,
-                    (button_size, button_size),
-                    (0., 0.),
-                    3
-                ))],
-                vec![Box::new(ButtonColourElement::new(
-                    HOVER_BLACK_OVERLAY,
-                    (button_size, button_size),
-                    (0., 0.),
-                    4
-                ))]
+            cancel: Button::gradient_border_and_image(
+                visualiser, &cancel_rect, button_border, 
+                load_image("assets/stop.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
-            import: Button::new(
-                (button_size, button_size),
-                (button_x_padding, bar_rect.y + 2.*screen_height()*SCREENSHOT_VERT_PADDING + button_size),
-                vec![
-                    Box::new(ButtonGradientElement::new(
-                        visualiser, None,
-                        (button_x_padding, bar_rect.y + 2.*screen_height()*SCREENSHOT_VERT_PADDING + button_size),
-                        (button_size, button_size),
-                        (0., 0.), WHITE, 0
-                    )),
-                    Box::new(ButtonColourElement::new(
-                        BLACK,
-                        (inner_button_size, inner_button_size),
-                        (button_border, button_border),
-                        1
-                    )),
-                    Box::new(ButtonImageElement::new(
-                        load_image("assets/import.png").await.unwrap(), 
-                        1., 
-                        DrawTextureParams { dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default() }, 
-                        (button_border, button_border), 
-                        2
-                    ))
-                ],
-                vec![Box::new(ButtonColourElement::new(
-                    HOVER_WHITE_OVERLAY,
-                    (button_size, button_size),
-                    (0., 0.),
-                    3
-                ))],
-                vec![Box::new(ButtonColourElement::new(
-                    HOVER_BLACK_OVERLAY,
-                    (button_size, button_size),
-                    (0., 0.),
-                    4
-                ))]
+            import: Button::gradient_border_and_image(
+                visualiser, &import_rect, button_border, 
+                load_image("assets/import.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             progress_bar: ProgressBar::new(
                 visualiser, 
@@ -4380,12 +4317,9 @@ impl MenuType for ScreenshotMenu {
 
             self.export.update();
             if self.export.clicked {
-                let dimensions = ScreenDimensions::from_tuple(match self.current_resolution {
-                    ScreenshotResolution::R1080p => ScreenDimensions::tuple_1080p(),
-                    ScreenshotResolution::R4k => ScreenDimensions::tuple_4k(),
-                    ScreenshotResolution::R8k => ScreenDimensions::tuple_8k(),
-                    ScreenshotResolution::Custom => (self.width.data.parse().unwrap(), self.height.data.parse().unwrap())
-                });
+                let dimensions = self.current_resolution.to_screen_dimensions(
+                    self.width.data.parse().unwrap(), self.height.data.parse().unwrap()
+                );
 
                 visualiser.start_export(&self.name.data, dimensions);
 
@@ -4450,5 +4384,792 @@ impl MenuType for ScreenshotMenu {
         self.import.refresh_gradient(visualiser);
 
         self.progress_bar.refresh_gradient(visualiser);
+    }
+}
+
+struct VideoMenu {
+    name: TextBox,
+    resolution: DropDown<ScreenshotResolution>,
+    current_resolution: ScreenshotResolution,
+    width: TextBox,
+    height: TextBox,
+    time: TextBox,
+    fps: TextBox,
+    bar_rect: Rect,
+    bar_grad: Texture2D,
+    record: Button,
+    export: Button,
+    resume: Button,
+    cancel: Button,
+    import: Button,
+    progress_bar: ProgressBar,
+    exporting: bool,
+}
+impl VideoMenu {
+    async fn new(visualiser: &Visualiser) -> VideoMenu {
+        let font =  load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+
+        let vert_padding = screen_height() * DEFAULT_INPUT_BOX_VERT_PADDING;
+        let name_input_box = GradientInputBox::default_top(visualiser);
+        let res_input_box = name_input_box.next_vert(visualiser, vert_padding, true);
+        let width_input_box = res_input_box.next_vert(visualiser, vert_padding, true);
+        let height_input_box = width_input_box.next_vert(visualiser, vert_padding, true);
+        let time_input_box = height_input_box.next_vert(visualiser, vert_padding, true);
+        let fps_input_box = time_input_box.next_vert(visualiser, vert_padding, true);
+
+        let bar_rect = Rect::new(
+            0.,
+            fps_input_box.outer_rect().bottom() + screen_height() * SCREENSHOT_VERT_PADDING,
+            screen_width() * MENU_SCREEN_PROPORTION,
+            screen_height() * SCREENSHOT_BAR_HEIGHT
+        );
+
+        let button_size = screen_width()*SCREENSHOT_BUTTON_WIDTH;
+        let button_border = screen_width()*SCREENSHOT_BUTTON_BORDER_WIDTH;
+        let button_x_padding = screen_width()*TEXTBOX_RIGHT_PADDING;
+
+        let edit_rect = Rect::new(
+            button_x_padding, 
+            bar_rect.y + screen_height()*SCREENSHOT_VERT_PADDING,
+            button_size, button_size
+        );
+        let mut export_rect = edit_rect.clone();
+        export_rect.x += edit_rect.w + screen_height()*SCREENSHOT_VERT_PADDING;
+        let mut cancel_rect = edit_rect.clone();
+        cancel_rect.x = screen_width()*MENU_SCREEN_PROPORTION - button_size - button_x_padding;
+        let mut resume_rect = cancel_rect.clone();
+        resume_rect.x -= button_size - button_x_padding;
+
+        let mut import_rect = edit_rect.clone();
+        import_rect.y += edit_rect.h + screen_height()*SCREENSHOT_VERT_PADDING;
+
+        VideoMenu {
+            name: TextBox::new(name_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "name", true), 
+                InputLabel::default_input_box_content(font),
+                "[date]_[time]"
+            ),
+            resolution: DropDown::new(visualiser, res_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "resolution", true), 
+                InputLabel::default_input_box_content(font)).await,
+            current_resolution: ScreenshotResolution::R4k,
+            width: TextBox::new(width_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "width", true), 
+                InputLabel::default_input_box_content(font), "600"),
+            height: TextBox::new(height_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "height", true), 
+                InputLabel::default_input_box_content(font), "600"),
+            time: TextBox::new(time_input_box,
+                InputLabel::default_input_box_label(visualiser, font, "seconds", true),
+                InputLabel::default_input_box_content(font), "5"),
+            fps: TextBox::new(fps_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "FPS", true),
+                InputLabel::default_input_box_content(font), "60"),
+            bar_rect,
+            bar_grad: get_back_gradient(visualiser, 0, bar_rect.w as u16, bar_rect.h as u16),
+            record: Button::gradient_border_and_image(
+                visualiser, &edit_rect, button_border, 
+                load_image("assets/record.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
+            ),
+            export: Button::gradient_border_and_image(
+                visualiser, &export_rect, button_border, 
+                load_image("assets/export.png").await.unwrap(), DrawTextureParams::default(),
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
+            ),
+            resume: Button::gradient_border_and_image(
+                visualiser, &resume_rect, button_border, 
+                load_image("assets/forward.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
+            ),
+            cancel: Button::gradient_border_and_image(
+                visualiser, &cancel_rect, button_border, 
+                load_image("assets/stop.png").await.unwrap(), DrawTextureParams::default(),
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
+            ),
+            import: Button::gradient_border_and_image(
+                visualiser, &import_rect, button_border, 
+                load_image("assets/import.png").await.unwrap(), DrawTextureParams::default(),
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
+            ),
+            progress_bar: ProgressBar::new(
+                visualiser, 
+                Rect::new(
+                    screen_width()*(MENU_SCREEN_PROPORTION/2.-PROGRESS_BAR_WIDTH/2.),
+                    screen_height()*(1. - PROGRESS_BAR_VERT_PADDING),
+                    screen_width()*PROGRESS_BAR_WIDTH,
+                    screen_height()*PROGRESS_BAR_HEIGHT
+                ),
+                Some(InputLabel::new(
+                    "0%", 
+                    font, 
+                    screen_width()*PROGRESS_BAR_FONT_PROPORTION, 
+                    WHITE, false,
+                    0., TextAlign::Centre // these don't matter for progress bars (yet)
+                ))
+            ),
+            exporting: false
+        }
+    }
+
+    fn update_top_menu(&mut self, visualiser: &mut Visualiser) {
+        if let Some(new) = self.name.update(self.name.data.clone()) {
+            self.name.data = new;
+            visualiser.video_recorder.changed = true;
+        }
+        
+        if self.current_resolution == ScreenshotResolution::Custom {
+            if !self.resolution.open {
+                if let Some(Ok(new)) = self.width.update(self.width.data.clone()).and_then(|d| Some(d.parse::<usize>())) {
+                    if new > 0 {
+                        self.width.data = new.to_string();
+                        visualiser.video_recorder.changed = true;
+                    }
+                }
+                if let Some(Ok(new)) = self.height.update(self.height.data.clone()).and_then(|d| Some(d.parse::<usize>())) {
+                    if new > 0 {
+                        self.height.data = new.to_string();
+                        visualiser.video_recorder.changed = true;
+                    }
+                }
+            } else {
+                self.width.draw();
+                self.height.draw();
+            }
+        } 
+
+        if let Some(Ok(new)) = self.time.update(self.time.data.clone()).and_then(|d| Some(d.parse::<usize>())) {
+            if new > 0 {
+                self.time.data = new.to_string();
+                visualiser.video_recorder.changed = true;
+            }
+        }
+
+        if let Some(Ok(new)) = self.fps.update(self.fps.data.clone()).and_then(|d| Some(d.parse::<usize>())) {
+            if new > 0 {
+                self.fps.data = new.to_string();
+                visualiser.video_recorder.changed = true;
+            }
+        }
+
+        if let Some(new) = self.resolution.update(&self.current_resolution) {
+            self.current_resolution = new;
+            visualiser.video_recorder.changed = true;
+        }
+    }
+
+    fn draw_top_menu(&mut self) {
+        self.name.draw();
+        self.resolution.draw(&self.current_resolution);
+        
+        if self.current_resolution == ScreenshotResolution::Custom {
+            self.width.draw();
+            self.height.draw();
+        }
+
+        self.time.draw();
+        self.fps.draw();
+    }
+}
+impl MenuType for VideoMenu {
+    fn update(&mut self, visualiser: &mut Visualiser) -> MenuSignal {
+        draw_texture(self.bar_grad, self.bar_rect.x, self.bar_rect.y, WHITE);
+
+        if !self.exporting {
+            self.update_top_menu(visualiser);
+
+            if visualiser.video_recorder.changed {
+                self.progress_bar.draw(0., false, false);
+            } else {
+                self.progress_bar.draw(visualiser.video_recorder.get_progress(), true, true);
+            }
+
+            self.record.update();
+            if self.record.clicked {
+                return MenuSignal::RecordVideo;
+            }
+
+            if !visualiser.video_recorder.changed {
+                self.resume.update();
+                if self.resume.clicked {
+                    visualiser.video_recorder.resume_export();
+                    self.exporting = true;
+                }
+            }
+
+            if visualiser.video_recorder.can_export() {
+                self.export.update();
+            }
+            if self.export.clicked && visualiser.video_recorder.can_export() {
+                let dimensions = self.current_resolution.to_screen_dimensions(
+                    self.width.data.parse().unwrap(), self.height.data.parse().unwrap()
+                );
+
+                visualiser.start_recording(
+                    &self.name.data, dimensions, self.time.data.parse().unwrap(), self.fps.data.parse().unwrap()
+                );
+
+                self.exporting = true;
+            }
+
+            self.import.update();
+            if self.import.clicked {
+                let mut images_dir = std::env::current_dir().unwrap();
+                images_dir.push("videos");
+                if let Ok(Some(file_path)) = FileDialog::new()
+                    .set_location(&images_dir)
+                    .add_filter("Text Files", &["txt"])
+                    .show_open_single_file() 
+                {
+                    visualiser.video_recorder.import_from_file(&file_path);
+                    return MenuSignal::RecordVideo;
+                }
+            }
+        } else {
+            self.draw_top_menu();
+
+            self.progress_bar.draw(visualiser.video_recorder.get_progress(), true, true);
+
+            self.record.draw();
+            self.export.holding = true;
+            self.export.draw();
+            self.cancel.update();
+            if self.cancel.clicked {
+                visualiser.video_recorder.cancel_export();
+                visualiser.cancel_current_render();
+                self.exporting = false;
+            }
+            if !visualiser.video_recorder.exporting {
+                self.exporting = false;
+            }
+        }
+
+        MenuSignal::None
+    }
+
+    fn get_editing(&mut self) -> bool {
+        for textbox in vec![&self.name, &self.width, &self.height, &self.time, &self.fps].iter() {
+            if textbox.selected { return true}
+        }
+        false
+    }
+
+    fn refresh_gradients(&mut self, visualiser: &Visualiser) {
+        Texture2D::delete(&self.bar_grad);
+        self.bar_grad = get_back_gradient(visualiser, 0, self.bar_rect.w as u16, self.bar_rect.h as u16);
+
+        self.name.refresh_gradient(visualiser);
+        self.resolution.refresh_gradient(visualiser);
+        self.width.refresh_gradient(visualiser);
+        self.height.refresh_gradient(visualiser);
+        self.time.refresh_gradient(visualiser);
+        self.fps.refresh_gradient(visualiser);
+        self.record.refresh_gradient(visualiser);
+        self.export.refresh_gradient(visualiser);
+        self.resume.refresh_gradient(visualiser);
+        self.cancel.refresh_gradient(visualiser);
+        self.import.refresh_gradient(visualiser);
+
+        self.progress_bar.refresh_gradient(visualiser);
+    }
+}
+
+struct VideoTimestampEditor {
+    percentage_editor: PercentageEditor,
+    font: Font,
+    font_size: u16
+}
+impl VideoTimestampEditor {
+    fn new(timestamp: &VideoTimestamp, timeline_rect: &Rect, font: Font) -> VideoTimestampEditor {
+        let width = screen_width()*VIDEORECORDER_TIMESTAMP_WIDTH;
+        let x = timeline_rect.x - width/2. + timestamp.percent*timeline_rect.w;
+        
+        VideoTimestampEditor {
+            percentage_editor: PercentageEditor::new(
+                timeline_rect,
+                Rect::new(x, timeline_rect.bottom(), width,  2.*width)
+            ),
+            font,
+            font_size: (screen_width()*VIDEORECORDER_TIMELINE_FONT_PROPORTION) as u16
+        }
+    }
+
+    /// draw and updare the `VideotimestampEditor`
+    /// 
+    /// # Returns
+    /// None if the timestamp was unchanged
+    /// Some(new percentage) is the timestamp was changed
+    fn update(&mut self, other_selected: bool) -> Option<f32> {
+        self.draw();
+        self.percentage_editor.update(other_selected)
+    }
+
+    fn draw(&self) {
+        let color = match self.percentage_editor.selected {
+            true => WHITE,
+            false => LAYERMANAGER_LAYER_TYPE_COLOUR
+        };
+
+        let rect = &self.percentage_editor.rect;
+        draw_circle(rect.center().x, rect.center().y, rect.w/2., color);
+        draw_rectangle(rect.x, rect.y, rect.w, rect.h/2., BLACK);
+        draw_triangle(
+            Vec2::new(rect.center().x, rect.y),
+            Vec2::new(rect.x, rect.center().y),
+            Vec2::new(rect.right(), rect.center().y),
+            color
+        );
+
+        let percent = format!["{:.1}%", self.percentage_editor.get_percent()*100.];
+        let measure = measure_text(&percent, Some(self.font), self.font_size, 1.0);
+        draw_text_ex(
+            &percent,
+            self.percentage_editor.rect.center().x - measure.width/2.,
+            self.percentage_editor.rect.bottom() + measure.height,
+            TextParams { font: self.font, font_size: self.font_size, color, ..Default::default() }
+        );
+    }
+}
+
+struct VideoTimelineEditor {
+    rect: Rect,
+    click_rect: Rect,
+    preview_percent: f32,
+    font: Font,
+    zero_measure: TextDimensions,
+    fifty_measure: TextDimensions,
+    hundred_measure: TextDimensions,
+    timestamp_editors: Vec<VideoTimestampEditor>,
+    add_button: Button,
+    delete_button: Button,
+    prev_selected_i: Option<usize>,
+    /// if the user has changed the preview of the video in the frame
+    changed_preview: bool,
+}
+impl VideoTimelineEditor {
+    async fn new(visualiser: &Visualiser, timeline_rect: Rect, font: Font) -> VideoTimelineEditor {
+        let start_x = screen_width()*PALETTEEDITOR_HOR_PADDING;
+        let vert_padding = screen_height()*PALETTEEDITOR_VERT_PADDING;
+
+        let font_size = (screen_width()*VIDEORECORDER_TIMELINE_FONT_PROPORTION) as u16;
+
+        let button_size = screen_width()*PALETTEEDITOR_BUTTON_WIDTH;
+        let button_border = screen_width()*PALETTEEDIOR_BUTTON_BORDER_WIDTH;
+        let inner_button_size = button_size - 2.*button_border;
+        let delete_button_start_x = screen_width()*(MENU_SCREEN_PROPORTION-PALETTEEDITOR_HOR_PADDING)-button_size;
+
+        let add_rect = Rect::new(
+            start_x,
+            timeline_rect.bottom() + 2.*screen_width()*VIDEORECORDER_TIMESTAMP_WIDTH + 
+                screen_height()*VIDEORECORDER_TIMELINE_VERT_PADDING + vert_padding,
+            button_size, button_size
+        );
+        let mut delete_rect = add_rect.clone();
+        delete_rect.x = delete_button_start_x;
+
+        let mut click_rect = inflate_rect(&timeline_rect, timeline_rect.w/20.);
+        click_rect.h += screen_height()*(VIDEORECORDER_TIMELINE_VERT_PADDING+VIDEORECORDER_TIMELINE_TEXT_PADDING) +
+            screen_width()*(VIDEORECORDER_TIMELINE_FONT_PROPORTION+2.*VIDEORECORDER_TIMESTAMP_WIDTH);
+
+        VideoTimelineEditor { 
+            rect: timeline_rect.clone(), 
+            click_rect,
+            preview_percent: 0.0,
+            font: font.clone(),
+            zero_measure: measure_text("0%", Some(font), font_size, 1.),
+            fifty_measure: measure_text("50%", Some(font), font_size, 1.),
+            hundred_measure: measure_text("100%", Some(font), font_size, 1.),
+            timestamp_editors: Vec::new(), 
+            add_button: Button::gradient_border_and_image(
+                visualiser, &add_rect, button_border, 
+                load_image("assets/plus.png").await.unwrap(), DrawTextureParams::default(),
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
+            ), 
+            delete_button: Button::from_rect(
+                &delete_rect, 
+                vec![
+                    Box::new(ButtonGradientElement::full_back(visualiser, None, &delete_rect, WHITE, 0)),
+                    Box::new(ButtonColourElement::inner_from_border(&delete_rect, button_border, 1)),
+                    Box::new(ButtonImageElement::new(
+                        load_image("assets/bin.png").await.unwrap(),
+                        1.0,
+                        DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
+                        (button_border, button_border),
+                        2
+                    ))
+                ], 
+                vec![
+                    Box::new(ButtonColourElement::inner_from_border(&delete_rect, button_border, 3)),
+                    Box::new(ButtonImageElement::new(
+                        load_image("assets/binOpen.png").await.unwrap(),
+                        1.0,
+                        DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
+                        (button_border, button_border),
+                        4
+                    )),
+                    Box::new(ButtonColourElement::full_button(&delete_rect, HOVER_WHITE_OVERLAY, 5))
+                ], 
+                vec![Box::new(ButtonColourElement::full_button(&delete_rect, HOVER_BLACK_OVERLAY, 6))]
+            ),
+            prev_selected_i: None,
+            changed_preview: false
+        }
+    }
+
+    /// clears the timeline editor and creates a new one
+    fn load(&mut self, recorder: &VideoRecorder) {
+        self.timestamp_editors = Vec::with_capacity(recorder.timestamps.len());
+        for timestamp in recorder.timestamps.iter() {
+            self.timestamp_editors.push(VideoTimestampEditor::new(timestamp, &self.rect, self.font));
+        } 
+    }   
+
+    fn add_timestamp(&mut self, visualiser: &mut Visualiser) {
+        let mut new_timestamp = VideoTimestamp::new(&visualiser, 0.0);
+        if visualiser.video_recorder.new_timestamp(&mut new_timestamp) {
+            self.timestamp_editors.push(VideoTimestampEditor::new(&new_timestamp, &self.rect, self.font))
+        }
+    }
+
+    fn delete_timestamp(&mut self, timestamp_i: usize, visualiser: &mut Visualiser) {
+        if self.timestamp_editors.len() == 0 { return }
+        visualiser.video_recorder.delete_timestamp(timestamp_i);
+        self.timestamp_editors.remove(timestamp_i);
+    }
+
+    fn update_delete_button(&mut self, selected_i: Option<usize>, visualiser: &mut Visualiser) {
+        let i = match selected_i {
+            None => return,
+            Some(index) => index
+        };
+
+        self.delete_button.update();   
+        if !self.delete_button.clicked { return }
+
+        self.delete_timestamp(i, visualiser);
+    }
+
+    fn render_current_percent(&mut self, visualiser: &mut Visualiser) {
+        let timestamp = visualiser.video_recorder.get_timestamp_at_percent(self.preview_percent);
+        let timestamp = match timestamp {
+            None => return,
+            Some(ts) => ts
+        };
+
+        visualiser.load_timestamp(&timestamp);
+        visualiser.generate_image();
+        self.changed_preview = true;
+    }
+
+    fn process_click(&mut self, visualiser: &mut Visualiser, selected: bool) {
+        if !is_mouse_button_down(MouseButton::Left) || selected ||
+           !self.click_rect.contains(mouse_position().into()) { return }
+
+        let mx = mouse_position().0;
+        let percent = (mx-self.rect.x) / self.rect.w;
+        self.preview_percent = percent.clamp(0., 1.);
+
+        self.render_current_percent(visualiser);
+    }
+
+    fn update(&mut self, visualiser: &mut Visualiser, preview_speed: f32) {
+        self.draw();
+
+        self.changed_preview = false;
+
+        let mut selected_i: Option<usize> = None;
+        for (i, timestampeditor) in self.timestamp_editors.iter_mut().enumerate() {
+            if let Some(p) = timestampeditor.update(selected_i.is_some()) {
+                visualiser.video_recorder.change_timestamp_percent(i, p);
+            }
+            if timestampeditor.percentage_editor.selected { selected_i = Some(i) }
+        }
+
+        if let Some(i) = selected_i {
+            if self.prev_selected_i != selected_i && !visualiser.video_recorder.previewing {
+                let this_timestamp = visualiser.video_recorder.timestamps[i].clone();
+                visualiser.load_timestamp(&this_timestamp);
+                visualiser.generate_image();
+                self.changed_preview = true;
+            }
+        }
+
+        if visualiser.video_recorder.previewing {
+            self.preview_percent += preview_speed * get_frame_time();
+            if self.preview_percent >= 1. {
+                self.preview_percent -= 1.;
+            }
+            self.render_current_percent(visualiser);
+        } else {
+            self.process_click(visualiser, selected_i.is_some());
+        }
+        
+        self.add_button.update();
+        if self.add_button.clicked {
+            self.add_timestamp(visualiser);
+        }
+
+        self.update_delete_button(selected_i, visualiser);
+
+        self.prev_selected_i = selected_i;
+    }
+
+    fn draw(&self) {
+        let line_width = screen_height() * VIDEORECORDER_TIMELINE_LINE_HEIGHT;
+        let small_bar_height = screen_height() * VIDEORECORDER_TIMELINE_SMALL_BAR_HEIGHT;
+
+        // main line
+        draw_rectangle(self.rect.x, self.rect.center().y - line_width/2., self.rect.w, line_width, WHITE);
+
+        // 0 and 100% bars
+        draw_rectangle(self.rect.x, self.rect.y, line_width, self.rect.h, WHITE);
+        draw_rectangle(self.rect.right()-line_width, self.rect.y, line_width, self.rect.h, WHITE);
+
+        // 25, 50, and 75 bars
+        for i in 0..3 {
+            draw_rectangle(
+                self.rect.x + self.rect.w/4. + i as f32 * self.rect.w/4. - line_width/2.,
+                self.rect.center().y - small_bar_height/2.,
+                line_width, small_bar_height,
+                WHITE
+            );
+        }
+
+        // percentages
+        let font_size = (screen_width() * VIDEORECORDER_TIMELINE_FONT_PROPORTION) as u16;
+        draw_text_ex(
+            "0%", 
+            self.rect.x - self.zero_measure.width/2. + line_width/2.,
+            self.rect.y- screen_width()*VIDEORECORDER_TIMELINE_TEXT_PADDING,
+            TextParams { font: self.font, font_size, color: WHITE, ..Default::default() }
+        );
+        draw_text_ex(
+            "50%", 
+            self.rect.center().x - self.fifty_measure.width/2.,
+            self.rect.y- screen_width()*VIDEORECORDER_TIMELINE_TEXT_PADDING,
+            TextParams { font: self.font, font_size, color: WHITE, ..Default::default() }
+        );
+        draw_text_ex(
+            "100%", 
+            self.rect.right() - self.hundred_measure.width/2. - line_width/2.,
+            self.rect.y - screen_width()*VIDEORECORDER_TIMELINE_TEXT_PADDING,
+            TextParams { font: self.font, font_size, color: WHITE, ..Default::default() }
+        );
+
+        // preview bar
+        draw_rectangle(
+            self.rect.x + self.rect.w * self.preview_percent - line_width/2., 
+            self.rect.y,
+            line_width, 
+            self.rect.h, 
+            VIDEORECORDER_TIMELINE_PREVIEW_BAR_COLOUR
+        );
+    }
+
+    fn refresh_gradients(&mut self, visualiser: &Visualiser) {
+        self.add_button.refresh_gradient(visualiser);
+        self.delete_button.refresh_gradient(visualiser);
+    }
+}
+
+struct VideoRecorderMenu {
+    old_recorder: VideoRecorder,
+    font: Font,
+    title_back: Texture2D,
+    inner_title_rect: Rect,
+    title_text_measure: TextDimensions,
+    title_text_colour: Color,
+    timeline_editor: VideoTimelineEditor,
+    bar_rect: Rect,
+    bar_grad: Texture2D,
+    play: Button,
+    preview_seconds: TextBox,
+    /// percentage increase per second
+    preview_speed: f32,
+    sumbit_button: Button,
+    cancel_button: Button
+}
+impl VideoRecorderMenu {
+    async fn new(visualiser: &Visualiser) -> VideoRecorderMenu {
+        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+
+        let title_rect = Rect::new(0., 0., 
+            screen_width()*MENU_SCREEN_PROPORTION, 
+            screen_height()*(2.*STATE_TEXT_PADDING_PROPORTION) + screen_width()*STATE_TEXT_FONT_PROPORTION);
+        let title_back = get_back_gradient(visualiser, 0, title_rect.w as u16, title_rect.h as u16);
+            
+        let start_x = screen_width()*PALETTEEDITOR_HOR_PADDING;
+        let vert_padding = screen_height()*PALETTEEDITOR_VERT_PADDING;
+
+        let timeline_rect = Rect::new(
+            start_x, title_rect.h + vert_padding + screen_height()*VIDEORECORDER_TIMELINE_VERT_PADDING, 
+            screen_width()*(MENU_SCREEN_PROPORTION-2.*PALETTEEDITOR_HOR_PADDING),
+            screen_height()*VIDEORECORDER_TIMELINE_HEIGHT
+        );
+
+        let button_size = screen_width()*PALETTEEDITOR_BUTTON_WIDTH;
+        let button_border = screen_width()*PALETTEEDIOR_BUTTON_BORDER_WIDTH;
+
+        let bar_bottom = title_rect.h + 
+            vert_padding*3. + 
+            screen_height()*(VIDEORECORDER_TIMELINE_HEIGHT+2.*VIDEORECORDER_TIMELINE_VERT_PADDING+PALETTEEDITOR_BAR_HEIGHT) +
+            screen_width()*(2.*VIDEORECORDER_TIMESTAMP_WIDTH+PALETTEEDITOR_BUTTON_WIDTH);
+        let bar_rect = Rect::new(
+            0., 
+            bar_bottom-screen_height()*PALETTEEDITOR_BAR_HEIGHT, 
+            screen_width()*MENU_SCREEN_PROPORTION,
+            screen_height()*PALETTEEDITOR_BAR_HEIGHT
+        );
+
+        let play_rect = Rect::new(
+            start_x, bar_bottom + vert_padding,
+            button_size, button_size
+        );
+        let preview_input_box = GradientInputBox::new(
+            visualiser, 
+            screen_width()*VIDEORECORDER_TEXTBOX_START_X, 
+            play_rect.bottom() + vert_padding, 
+            screen_width()*(MENU_SCREEN_PROPORTION-VIDEORECORDER_TEXTBOX_START_X-PALETTEEDITOR_HOR_PADDING),
+            screen_height()*DEFAULT_INPUT_BOX_HEIGHT,
+            screen_height()*DEFAULT_INPUT_BOX_BORDER_SIZE
+        );
+
+        let sumbit_rect = Rect::new(
+            screen_width()*(MENU_SCREEN_PROPORTION/2. - PALETTEEDITOR_HOR_PADDING/2.) - button_size,
+            screen_height() - button_size - vert_padding,
+            button_size, button_size
+        );
+        let mut cancel_rect = sumbit_rect.clone();
+        cancel_rect.x = screen_width()*(MENU_SCREEN_PROPORTION/2. + PALETTEEDITOR_HOR_PADDING/2.);
+
+        VideoRecorderMenu { 
+            old_recorder: visualiser.video_recorder.clone(),
+            font,
+            title_back,
+            inner_title_rect: inflate_rect(&title_rect, -screen_width()*NAVBAR_BORDER_WIDTH_PROPORTION),
+            title_text_measure: measure_text(
+                "VIDEO RECORDER",
+                Some(font),
+                (screen_width()*STATE_TEXT_FONT_PROPORTION) as u16,
+                1.0
+            ),
+            title_text_colour: get_brightest_colour(title_back),
+            timeline_editor: VideoTimelineEditor::new(visualiser, timeline_rect, font).await,
+            bar_rect, 
+            bar_grad: get_back_gradient(visualiser, bar_rect.x as u16, bar_rect.w as u16, bar_rect.h as u16),
+            play: Button::gradient_border_and_image(visualiser, &play_rect, button_border, 
+                load_image("assets/next.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
+            ),
+            preview_seconds: TextBox::new(
+                preview_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "preview seconds", true),
+                InputLabel::default_input_box_content(font),
+                "5"
+            ),
+            preview_speed: 0.0,
+            sumbit_button: Button::gradient_border_and_image(visualiser, &sumbit_rect, button_border, 
+                load_image("assets/tick.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
+            ),
+            cancel_button: Button::gradient_border_and_image(visualiser, &cancel_rect, button_border, 
+                load_image("assets/cross.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
+            ),
+        }
+    }
+
+    fn draw_title(&self) {
+        draw_texture(self.title_back, 0., 0., WHITE);
+        draw_rect(&self.inner_title_rect, BLACK);
+        draw_text_ex(
+            "VIDEO RECORDER",
+            self.inner_title_rect.center().x - self.title_text_measure.width/2.,
+            self.inner_title_rect.center().y + self.title_text_measure.height/2.,
+            TextParams { 
+                font: self.font, 
+                font_size: (screen_width()*STATE_TEXT_FONT_PROPORTION) as u16, 
+                color: self.title_text_colour, 
+                ..Default::default() 
+            }
+        );
+    }
+}
+impl MenuType for VideoRecorderMenu {
+    fn update(&mut self, visualiser: &mut Visualiser) -> MenuSignal {
+        self.draw_title();
+
+        self.timeline_editor.update(visualiser, self.preview_speed);
+        if self.timeline_editor.changed_preview { self.refresh_gradients(visualiser) }
+
+        draw_texture(self.bar_grad, self.bar_rect.x, self.bar_rect.y, WHITE);
+
+        self.play.update();
+        if self.play.clicked {
+            visualiser.video_recorder.previewing = !visualiser.video_recorder.previewing;
+            if visualiser.video_recorder.previewing {
+                self.preview_speed = 1. / self.preview_seconds.data.parse::<f32>().unwrap();
+            }
+        }
+
+        if let Some(Ok(new)) = self.preview_seconds.update(self.preview_seconds.data.clone())
+                                      .and_then(|s| Some(s.parse::<usize>())) {
+            if new > 0 { self.preview_seconds.data = new.to_string() }
+        }
+
+        self.sumbit_button.update();
+        if self.sumbit_button.clicked {
+            visualiser.video_recorder.previewing = false;
+            return MenuSignal::RefreshGradients;
+        }
+
+        self.cancel_button.update();
+        if self.cancel_button.clicked {
+            visualiser.video_recorder = self.old_recorder.clone();
+            self.timeline_editor.load(&visualiser.video_recorder);
+            visualiser.video_recorder.previewing = false;
+            return MenuSignal::RefreshGradients;
+        }
+
+        MenuSignal::None
+    }
+
+    fn get_editing(&mut self) -> bool {
+        self.preview_seconds.selected
+    }
+
+    fn open_layer_to_edit(&mut self, _index: usize, visualiser: &Visualiser) {
+        self.old_recorder = visualiser.video_recorder.clone();
+        self.timeline_editor.load(&visualiser.video_recorder);
+    }
+
+    fn refresh_gradients(&mut self, visualiser: &Visualiser) {
+        Texture2D::delete(&self.title_back);
+        Texture2D::delete(&self.bar_grad);
+
+        let vert_padding = screen_width()*PALETTEEDITOR_VERT_PADDING;
+        let title_rect = Rect::new(0., 0., 
+            screen_width()*MENU_SCREEN_PROPORTION, 
+            screen_height()*(2.*STATE_TEXT_PADDING_PROPORTION) + screen_width()*STATE_TEXT_FONT_PROPORTION);
+        self.title_back = get_back_gradient(visualiser, 0, title_rect.w as u16, title_rect.h as u16);
+
+        let bar_bottom = title_rect.h + 
+            vert_padding*3. + 
+            screen_height()*(VIDEORECORDER_TIMELINE_HEIGHT+2.*VIDEORECORDER_TIMELINE_VERT_PADDING+PALETTEEDITOR_BAR_HEIGHT) +
+            screen_width()*(2.*VIDEORECORDER_TIMESTAMP_WIDTH+PALETTEEDITOR_BUTTON_WIDTH);
+        let bar_rect = Rect::new(
+            0., 
+            bar_bottom-screen_height()*PALETTEEDITOR_BAR_HEIGHT, 
+            screen_width()*MENU_SCREEN_PROPORTION,
+            screen_height()*PALETTEEDITOR_BAR_HEIGHT
+        );
+        self.bar_grad = get_back_gradient(visualiser, bar_rect.x as u16, bar_rect.w as u16, bar_rect.h as u16);
+
+        self.timeline_editor.refresh_gradients(visualiser);
+
+        self.play.refresh_gradient(visualiser);
+        self.preview_seconds.refresh_gradient(visualiser);
+        self.sumbit_button.refresh_gradient(visualiser);
+        self.cancel_button.refresh_gradient(visualiser);
     }
 }
