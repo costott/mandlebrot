@@ -101,11 +101,13 @@ fn check_chesum(text: &str) -> bool {
 
 pub struct App {
     visualiser: Visualiser,
-    menu: Menu
+    menu: Menu,
+    running: bool
 }
 impl App {
     pub async fn new(visualiser: Visualiser) -> App {
-        App { visualiser, menu: Menu::new().await }
+        let menu = Menu::new(&visualiser).await;
+        App { visualiser, menu, running: true }
     }
 
     pub async fn run(&mut self) {
@@ -114,7 +116,7 @@ impl App {
         println!("Took {} seconds to generate",  now.elapsed().as_secs_f32());
         self.visualiser.user_move();
 
-        loop {
+        while self.running {
             self.visualiser.draw();
             if !self.menu.get_editing() {
                 self.visualiser.update();
@@ -122,6 +124,7 @@ impl App {
             } 
 
             self.menu.update(&mut self.visualiser).await;
+            self.menu.leave_menu.update(&mut self.running, &mut self.visualiser);
 
             next_frame().await;
         }
@@ -130,12 +133,67 @@ impl App {
 
 #[derive(Clone)]
 pub struct JuliaSeed {
-    real: f64,
-    im: f64
+    double: Complex,
+    big: BigComplex
 }
 impl JuliaSeed {
-    pub fn new(real: f64, im: f64) -> JuliaSeed {
-        JuliaSeed { real, im }
+    fn new(real: f64, im: f64) -> JuliaSeed {
+        JuliaSeed { 
+            double: Complex::new(real, im), 
+            big: BigComplex::from_f64s(real, im)
+        }
+    }
+
+    fn set_real(&mut self, real: f64) {
+        self.double.real = real;
+        self.big = BigComplex::from_complex(self.double.clone());
+    }
+
+    fn set_im(&mut self, im: f64) {
+        self.double.im = im;
+        self.big = BigComplex::from_complex(self.double.clone());
+    }
+}
+
+#[derive(Clone)]
+pub enum Fractal {
+    Mandelbrot,
+    Julia(JuliaSeed)
+}
+impl Fractal {
+    pub fn iterate_double(&self, z: &mut Complex, c: Complex) {
+        match self {
+            Fractal::Mandelbrot => {*z = z.square() + c},
+            Fractal::Julia(seed) => {*z = z.square() + seed.double}
+        }
+    }
+
+    pub fn iterate_big(&self, z: &mut BigComplex, c: &BigComplex) {
+        match self {
+            Fractal::Mandelbrot => {*z = &z.square() + c},
+            Fractal::Julia(seed) => {*z = &z.square() + &seed.big}
+        }
+    }
+
+    pub fn is_mandelbrot(&self) -> bool {
+        match self {
+            Fractal::Mandelbrot => true,
+            _ => false
+        }
+    }
+
+    pub fn is_julia(&self) -> bool {
+        match self {
+            Fractal::Julia(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn unwrap_julia_seed(&mut self) -> &mut JuliaSeed {
+        match self {
+            Fractal::Julia(seed) => seed,
+            _ => panic!("not julia")
+        }
     }
 }
 
@@ -285,35 +343,33 @@ pub mod orbit_trap {
             OrbitTrapCross::new((0., 0.), 1., OrbitTrapAnalysis::Distance)
         }
 
-        // TODO: vector
+        fn vector_double(&self, z: Complex) -> Complex {
+            let vector;
+            let x_dist = z.real-self.centre.real;
+            let y_dist = z.im-self.centre.im;
+            if self.centre.im - self.arm_length <= z.im && z.im <= self.centre.im + self.arm_length &&
+                self.centre.real - self.arm_length <= z.real && z.real <= self.centre.real + self.arm_length {
+                vector = if x_dist.abs() <= y_dist.abs() {
+                    Complex::new(x_dist, 0.)
+                } else { 
+                    Complex::new(0., y_dist)
+                }
+            } else if x_dist.abs() < y_dist.abs() {
+                vector = z-
+                    Complex::new(self.centre.real, self.centre.im+y_dist.signum()*self.arm_length)
+            } else {
+                vector = z-
+                    Complex::new(self.centre.real+x_dist.signum()*self.arm_length, self.centre.im)
+            }
 
-        fn vector_double(&self, _z: Complex) -> Complex {
-            Complex::new(0.0, 0.0)
+            vector
         }
         fn vector_big(&self, _z: &BigComplex) -> BigComplex {
             BigComplex::from_f64s(0.0, 0.0)
         }
 
         fn distance2(&self, z: Complex) -> f64 {
-            let shortest_distance;
-            let x_dist = z.real-self.centre.real;
-            let x_dist2 = x_dist.powi(2);
-            let y_dist = z.im-self.centre.im;
-            let y_dist2 = y_dist.powi(2);
-            if self.centre.im - self.arm_length <= z.im && z.im <= self.centre.im + self.arm_length &&
-                self.centre.real - self.arm_length <= z.real && z.real <= self.centre.real + self.arm_length {
-                shortest_distance = f64::min(x_dist2, y_dist2);
-            } else if x_dist2 < y_dist2 {
-                shortest_distance = (z-
-                    Complex::new(self.centre.real, self.centre.im+y_dist.signum()*self.arm_length)
-                ).abs_squared();
-            } else {
-                shortest_distance = (z-
-                    Complex::new(self.centre.real+x_dist.signum()*self.arm_length, self.centre.im)
-                ).abs_squared();
-            }
-
-            shortest_distance
+            self.vector_double(z).abs_squared()
         }
         
         /// returns the shortest distance squared between the 
@@ -331,7 +387,13 @@ pub mod orbit_trap {
         /// returns the maximum possible distance
         /// a complex number can be from the trap
         pub fn greatest_distance2(&self, bailout2: f64) -> f64 {
-            (bailout2.sqrt() + self.centre.abs_squared().sqrt()).powi(2)
+            // (bailout2.sqrt() + self.centre.abs_squared().sqrt()).powi(2)
+            match self.analysis {
+                OrbitTrapAnalysis::Distance => (bailout2.sqrt() + self.centre.abs_squared().sqrt()).powi(2),
+                OrbitTrapAnalysis::Real => (bailout2.sqrt() + self.centre.real.abs() - self.arm_length).powi(2),
+                OrbitTrapAnalysis::Imaginary => (bailout2.sqrt() + self.centre.im.abs() - self.arm_length).powi(2),
+                OrbitTrapAnalysis::Angle => (2.*PI).powi(2)
+            }
         }
 
         fn interpolate_crosses(p1: &OrbitTrapCross, p2: &OrbitTrapCross, percent: f64) -> OrbitTrapCross {
@@ -367,18 +429,19 @@ pub mod orbit_trap {
             OrbitTrapCircle::new((0., 0.), 1., OrbitTrapAnalysis::Distance)
         }
 
-        // TODO: VECTOR
-
         /// returns the smallest vector of the given (double) complex number to the circle
-        fn vector_double(&self, _z: Complex) -> Complex {
-            Complex::new(0.0, 0.0)
+        fn vector_double(&self, z: Complex) -> Complex {
+            // Complex::new(0.0, 0.0)
+            let dist_rem = self.distance2_double(z).sqrt() % self.radius;
+            ((z - self.centre) / (z-self.centre).abs_squared().sqrt()) * dist_rem
         }
         /// returns the smallest vector of the given (arbitrary) complex number to the circle
-        fn vector_big(&self, _z: &BigComplex) -> BigComplex {
-            BigComplex::from_f64s(0.0, 0.0)
+        fn vector_big(&self, z: &BigComplex) -> BigComplex {
+            let dist_rem = self.distance2_big(z).sqrt() % self.radius;
+            ((z - &self.big_centre) / (z-&self.big_centre).abs_squared().sqrt()) * dist_rem
         }
 
-        /// returns the shortest distance between the 
+        /// returns the shortest distance squared between the 
         /// given complex number and the circle trap
         pub fn distance2_double(&self, z: Complex) -> f64 {
             ((z-self.centre).abs_squared().sqrt() - self.radius).powi(2)
@@ -393,10 +456,16 @@ pub mod orbit_trap {
         /// a complex number can be from the trap
         pub fn greatest_distance2(&self, bailout2: f64) -> f64 {
             let big_rad = bailout2.sqrt();
-            f64::max(
-                big_rad - (self.radius - self.centre.abs_squared().sqrt()), 
-                self.radius
-            ).powi(2)
+            
+            match self.analysis {
+                OrbitTrapAnalysis::Distance => f64::max(
+                        big_rad - (self.radius - self.centre.abs_squared().sqrt()), 
+                        self.radius
+                    ).powi(2),
+                OrbitTrapAnalysis::Real => big_rad + self.centre.real - self.radius,
+                OrbitTrapAnalysis::Imaginary => big_rad + self.centre.im - self.radius,
+                OrbitTrapAnalysis::Angle => (2.*PI).powi(2)
+            }
         }
 
         /// minimum possible distance a point can be from the trap
@@ -713,7 +782,7 @@ fn diverges(c: Complex, max_iterations: u32) -> f64 {
 // const SEED: Complex = Complex { real: 0.285 , im: 0. };
 // const SEED: Complex = Complex { real: -0.4, im: 0.6 };
 /// julia set divergence
-fn diverges_julia(c: Complex, max_iterations: u32, seed: &JuliaSeed) -> f64 {
+fn diverges_julia(c: Complex, max_iterations: u32, seed: &Complex) -> f64 {
     let seed = Complex::new(seed.real, seed.im);
 
     let mut z = c;
@@ -830,6 +899,7 @@ struct ThreadSplitter {
 }
 
 struct Renderer {
+    fractal: Fractal,
     dimensions: ScreenDimensions,
     start_y: usize,
     thread_height: usize,
@@ -841,6 +911,7 @@ struct Renderer {
     layers: Layers,
     quality: usize,
     thread_cancel: Arc<AtomicBool>,
+    can_cancel: bool,
     reference_orbit: Arc<Option<ReferenceOrbit>>,
     progress_tracker: Arc<Mutex<usize>>
 }
@@ -855,8 +926,10 @@ impl Renderer {
 
         match self.center {
             ComplexType::Double(_) => self.render_double(&split),
-            // ComplexType::Big(_) => self.render_arbitrary(&split)
-            ComplexType::Big(_) => self.render_arbitrary_perturbed(&split)
+            ComplexType::Big(_) => match self.fractal {
+                Fractal::Mandelbrot => self.render_arbitrary_perturbed(&split),
+                _ => self.render_arbitrary(&split)
+            }
         }
     }
 
@@ -869,7 +942,7 @@ impl Renderer {
                 ));
                 self.set_pixels(z, x, y, split);
 
-                if self.thread_cancel.load(Ordering::Relaxed) {
+                if self.thread_cancel.load(Ordering::Relaxed) && self.can_cancel {
                     return;
                 }
             }
@@ -904,7 +977,7 @@ impl Renderer {
                 y_add += &quality;
                 self.set_pixels(z, x, y, split);
 
-                if self.thread_cancel.load(Ordering::Relaxed) {
+                if self.thread_cancel.load(Ordering::Relaxed) && self.can_cancel {
                     return;
                 }
             }
@@ -931,7 +1004,7 @@ impl Renderer {
                 );
                 self.set_pixels_perturbation(dc, &reference_orbit.ref_z, reference_orbit.max_ref_iteration, x, y, split);
 
-                if self.thread_cancel.load(Ordering::Relaxed) {
+                if self.thread_cancel.load(Ordering::Relaxed) && self.can_cancel {
                     return;
                 }
             }
@@ -939,7 +1012,7 @@ impl Renderer {
     }
 
     fn set_pixels(&self, z: ComplexType, x: usize, y: usize, split: &ThreadSplitter) {
-        let colour: Color = self.layers.colour_pixel(z, self.max_iterations,  self.bailout2);
+        let colour: Color = self.layers.colour_pixel(&self.fractal, z, self.max_iterations,  self.bailout2);
             
         let mut im = self.image.lock().unwrap();
 
@@ -960,7 +1033,9 @@ impl Renderer {
     }
 
     fn set_pixels_perturbation(&self, dc: Complex, ref_z: &Vec<Complex>, max_ref_iteration: usize, x: usize, y: usize, split: &ThreadSplitter) {
-        let colour: Color = self.layers.colour_pixel_implementors_perturbed(dc, ref_z, max_ref_iteration, self.max_iterations, self.bailout2);
+        let colour: Color = self.layers.colour_pixel_implementors_perturbed(
+            &self.fractal, dc, ref_z, max_ref_iteration, self.max_iterations, self.bailout2
+        );
             
         let mut im = self.image.lock().unwrap();
 
@@ -988,7 +1063,7 @@ struct ReferenceOrbit {
     max_ref_iteration: usize
 }
 impl ReferenceOrbit {
-    fn new(center: &BigComplex, max_iterations: usize, bailout2: f64) -> ReferenceOrbit {
+    fn new(fractal: &Fractal, center: &BigComplex, max_iterations: usize, bailout2: f64) -> ReferenceOrbit {
         let mut ref_z: Vec<Complex> = Vec::with_capacity(max_iterations);
         let mut max_ref_iteration= 0;
 
@@ -996,7 +1071,7 @@ impl ReferenceOrbit {
         for i in 0..max_iterations {
             ref_z.push(z.to_complex());
             if z.abs_squared() < bailout2 {
-                z = z.square() + center;
+                fractal.iterate_big(&mut z, center);
                 max_ref_iteration = i;
             } else {
                 break;
@@ -1588,6 +1663,7 @@ impl VideoRecorder {
 }
 
 pub struct Visualiser {
+    fractal: Fractal,
     current_dimensions: ScreenDimensions,
     center: ComplexType,
     pixel_step: f64,
@@ -1617,13 +1693,14 @@ pub struct Visualiser {
 }
 impl Visualiser {
     pub fn new(
+        fractal: Fractal,
         pixel_step: f64, 
         max_iterations: f32, 
         bailout: f64,
         view_dimensions: (usize, usize),
         layers: Layers
     ) -> Visualiser {
-        Visualiser { pixel_step, max_iterations, layers,
+        Visualiser { fractal, pixel_step, max_iterations, layers,
             bailout2: bailout.powi(2),
             current_dimensions: ScreenDimensions::from_tuple(view_dimensions),
             center: ComplexType::Double(Complex::new(-0.5, 0.0)),
@@ -1646,6 +1723,13 @@ impl Visualiser {
             render_start_time: Instant::now(),
             last_render_time: f32::INFINITY
         }
+    }
+
+    pub fn set_fractal(&mut self, new_fractal: Fractal) {
+        self.fractal = new_fractal;
+        self.quality = MAX_QUALITY;
+        self.set_pixel_step(0.005);
+        self.generate_image();
     }
 
     pub fn get_magnification(&self) -> f64 {
@@ -1699,6 +1783,8 @@ impl Visualiser {
         let params_string = lines.join("\n");
         let params = VisualiserParams::import_from_str(&params_string);
         self.load_params(params);
+        // just for now as julia can't be saved yet
+        self.fractal = Fractal::Mandelbrot;
 
         self.update_precision();
         self.generate_image();
@@ -1734,35 +1820,57 @@ impl Visualiser {
         self.layers.generate_palettes(self.max_iterations);
 
         self.progress_tracker = Arc::new(Mutex::new(0));
-        self.generate_given_image(self.image.clone(), self.current_dimensions.clone(), self.pixel_step, Arc::clone(&self.progress_tracker));
+        self.generate_given_image(
+            self.image.clone(), self.current_dimensions.clone(), None, self.pixel_step, None, 
+            self.quality, Arc::clone(&self.progress_tracker), true
+        );
         self.render_start_time = Instant::now();
         
         Texture2D::delete(&self.texture);
         self.texture = Texture2D::from_image(&self.image.lock().unwrap());
     }
 
+    fn get_needed_center(center: ComplexType, pixel_step: f64) -> ComplexType {
+        let arb_precision = pixel_step <= ARB_PRECISION_THRESHOLD;
+
+        match &center {
+            ComplexType::Big(c) => if !arb_precision {
+                ComplexType::Double(c.to_complex())
+            } else {
+                center.clone()
+            },
+            ComplexType::Double(_) => center.clone()
+        }
+    }
+
     /// generates and stores the mandlebrot image
     /// for the current parameters
+    /// 
+    /// param is None, the visualiser's is used
     pub fn generate_given_image(
         &mut self, 
         image: Arc<Mutex<Image>>, 
         dimensions: ScreenDimensions, 
+        fractal: Option<Fractal>,
         pixel_step: f64,
-        progress_tracker: Arc<Mutex<usize>>
+        center: Option<ComplexType>,
+        quality: usize,
+        progress_tracker: Arc<Mutex<usize>>,
+        can_cancel: bool
     ) {
-        let center = match &self.center {
-            ComplexType::Big(c) => if !self.arb_precision {
-                ComplexType::Double(c.to_complex())
-            } else {
-                self.center.clone()
-            },
-            ComplexType::Double(_) => self.center.clone()
-        };
+        let arb_precision = pixel_step <= ARB_PRECISION_THRESHOLD;
 
-        let reference_orbit = if !self.arb_precision {
+        let center = Visualiser::get_needed_center(
+            center.unwrap_or(self.center.clone()),
+            pixel_step
+        );
+        let fractal = fractal.unwrap_or(self.fractal.clone());
+
+        let reference_orbit = if !arb_precision {
             Arc::new(None)
         } else {
             Arc::new(Some(ReferenceOrbit::new(
+                &self.fractal,
                 match &self.center {
                     ComplexType::Double(_) => panic!("arbitrary precision needs an arbitrary precision center"),
                     ComplexType::Big(c) => c
@@ -1776,6 +1884,7 @@ impl Visualiser {
 
         for t in 0..THREADS {
             let renderer = Renderer {
+                fractal: fractal.clone(),
                 dimensions: dimensions.clone(),
                 start_y: t * thread_height,
                 thread_height,
@@ -1785,10 +1894,11 @@ impl Visualiser {
                 bailout2: self.bailout2.clone(),
                 image: Arc::clone(&image),
                 layers: self.layers.clone(),
-                quality: self.quality.clone(),
+                quality,
                 thread_cancel: Arc::clone(&self.thread_cancel),
                 reference_orbit: Arc::clone(&reference_orbit),
-                progress_tracker: Arc::clone(&progress_tracker)
+                progress_tracker: Arc::clone(&progress_tracker),
+                can_cancel
             };
             self.thread_pool.execute(move || {
                 renderer.render_image()
@@ -1840,8 +1950,12 @@ impl Visualiser {
             self.generate_given_image(
                 Arc::clone(&self.video_recorder.image), 
                 self.video_recorder.dims.clone(), 
+                None,
                 timestamp.pixel_step, 
-                Arc::clone(&self.video_recorder.progress_tracker)
+                None,
+                1,
+                Arc::clone(&self.video_recorder.progress_tracker),
+                false
             );
             return;
         }
@@ -2001,12 +2115,15 @@ impl Visualiser {
         self.update_precision();
         self.pixel_step = old_pixel_step;
 
-        self.quality = 1;
         self.generate_given_image(
             Arc::clone(&self.exporter.image), 
             self.exporter.dims.clone(), 
+            None,
             pixel_step,
-            Arc::clone(&self.exporter.progress_tracker)
+            None,
+            1,
+            Arc::clone(&self.exporter.progress_tracker),
+            false
         );
     }
 
@@ -2017,7 +2134,6 @@ impl Visualiser {
             &self.current_dimensions, 
             time, fps
         );
-        self.quality = 1;
     }
 
     fn finish_render(&mut self) {
@@ -2055,7 +2171,7 @@ impl Visualiser {
 
         if self.render_start_time.elapsed().as_secs_f32() < 1. / MIN_FPS as f32 { return }
 
-        if self.moving || self.video_recorder.previewing {
+        if (self.moving || self.video_recorder.previewing) && self.quality < MAX_QUALITY {
             self.quality += 1;
             self.cancel_current_render();
         }
@@ -2313,7 +2429,7 @@ mod tests {
 
     #[test]
     fn timestamp_boundary() {
-        let visualiser = Visualiser::new(0.005, 500., 4.5, (600, 600), Layers::new(vec![Layer::default()], true));
+        let visualiser = Visualiser::new(Fractal::Mandelbrot, 0.005, 500., 4.5, (600, 600), Layers::new(vec![Layer::default()], true));
         let mut recorder = VideoRecorder::new();
         let mut new_timestamp = VideoTimestamp::new(&visualiser, 0.);
         recorder.new_timestamp(&mut new_timestamp);

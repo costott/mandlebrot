@@ -5,10 +5,14 @@
 // copyright owner.
 
 use macroquad::prelude::*;
+
+use std::sync::{Arc, Mutex};
 use native_dialog::FileDialog;
 
 use super::{
     ScreenDimensions, Visualiser, interpolate_colour, 
+    Fractal, JuliaSeed,
+    complex::{ComplexType, Complex},
     layers::*,
     orbit_trap::*,
     palettes::*,
@@ -60,6 +64,9 @@ const TEXTBOX_RIGHT_PADDING: f32 = MENU_SCREEN_PROPORTION/50.;
 const TEXTBOX_CONTENT_PADDING: f32 = MENU_SCREEN_PROPORTION/100.;
 /// time between blinks of the text box cursor
 const TEXTBOX_CURSOR_BLINK_TIME: f32 = 0.5;
+
+/// proportion of the screen width for the padding either side of the julia editor
+const JULIAEDITOR_HOR_PADDING: f32 = MENU_SCREEN_PROPORTION/8.;
 
 /// padding before the layer managers proportional to the screen
 const LAYERMANAGER_LEFT_PADDING: f32 = 0.;// 1./200.;
@@ -187,12 +194,31 @@ const VIDEORECORDER_TIMESTAMP_WIDTH: f32 = MENU_SCREEN_PROPORTION/20.;
 /// proportion of the screen width for the start x of the the textboxes
 const VIDEORECORDER_TEXTBOX_START_X: f32 = MENU_SCREEN_PROPORTION*0.52;
 
+/// proportion of the screen width for the width of the leave menu
+const LEAVEMENU_WIDTH: f32 = 0.5;
+/// proportion of the screen height for the height of the leave menu
+const LEAVEMENU_HEIGHT: f32 = 0.8;
+/// proportion of the screen width for the size of the leave menu borders
+const LEAVEMENU_BORDER_SIZE: f32 = LEAVEMENU_WIDTH/150.;
+const LEAVEMENU_BACK_OVERLAY: Color = Color { r: 1., g: 1., b: 1., a: 0.5};
+/// porportion of the screen width for the width of the leave menu option buttons
+const LEAVEMENU_OPTION_WIDTH: f32 = LEAVEMENU_WIDTH*0.9;
+/// proportion of the screen height for the height of the leave menu option buttons
+const LEAVEMENU_OPTION_HEIGHT: f32 = LEAVEMENU_HEIGHT/8.;
+/// proportion of the screen width for the size of the leave menu font
+const LEAVEMENU_OPTION_FONT_PROPORTION: f32 = LEAVEMENU_OPTION_WIDTH/25.;
+/// proportion of the screen height for the vertical padding between elements in the leave menu
+const LEAVEMENU_VERT_PADDING: f32 = LEAVEMENU_HEIGHT/20.;
+/// proportion of the screen width for the size of the exit button on the leave menu
+const LEAVEMENU_EXIT_SIZE: f32 = LEAVEMENU_WIDTH/10.;
+
 /// gives a texture which is a snippet of the gradient for the menu at the given place
 fn get_back_gradient(visualiser: &Visualiser, start_x: u16, width: u16, height: u16) -> Texture2D {
     let mut image = Image::gen_image_color(width, height, BLACK);
+    let grad_width = screen_width()*MENU_SCREEN_PROPORTION;
 
     for i in 0..width {
-        let percent = ((start_x + i) as f32) / (screen_width()*MENU_SCREEN_PROPORTION);
+        let percent = ((start_x + i) as f32) % grad_width / grad_width;
         let mut colour = None;
         for layer in visualiser.layers.layers.iter() {
             // has to be a colour layer out of the set
@@ -357,10 +383,10 @@ impl MenuState {
         );
     }
 
-    async fn create_menu(&self, visualiser: &mut Visualiser, index: usize, font: Font) -> Option<Box<dyn MenuType>> {
+    async fn create_menu(&self, visualiser: &mut Visualiser, index: usize) -> Option<Box<dyn MenuType>> {
         match index {
-            0 => Some(Box::new(GeneralMenu::new(visualiser, font))),
-            1 => Some(Box::new(LayersMenu::new(visualiser, font).await)),
+            0 => Some(Box::new(GeneralMenu::new(visualiser).await)),
+            1 => Some(Box::new(LayersMenu::new(visualiser).await)),
             2 => Some(Box::new(LayerEditorMenu::new(visualiser).await)),
             3 => Some(Box::new(ScreenshotMenu::new(&visualiser).await)),
             4 => Some(Box::new(VideoMenu::new(&visualiser).await)),
@@ -387,14 +413,13 @@ impl MenuState {
         &mut self, 
         menus: &mut [Option<Box<dyn MenuType>>; 7], 
         visualiser: &mut Visualiser, 
-        signal: MenuSignal, 
-        font: Font
+        signal: MenuSignal
     ) {
         match signal {
             MenuSignal::None => {},
             MenuSignal::OpenEditor(index) => {
                 if menus[2].is_none() {
-                    menus[2] = self.create_menu(visualiser, 2, font).await
+                    menus[2] = self.create_menu(visualiser, 2).await
                 }
                 match &mut menus[2] {
                     None => panic!("layer editor menu failed to be created"),
@@ -404,7 +429,7 @@ impl MenuState {
             },
             MenuSignal::OpenPalette(index) => {
                 if menus[5].is_none() {
-                    menus[5] = self.create_menu(visualiser, 5, font).await
+                    menus[5] = self.create_menu(visualiser, 5).await
                 }
                 match &mut menus[5] {
                     None => panic!("palette editor menu failed to be created"),
@@ -414,7 +439,7 @@ impl MenuState {
             },
             MenuSignal::RecordVideo => {
                 if menus[6].is_none() {
-                    menus[6] = self.create_menu(visualiser, 6, font).await
+                    menus[6] = self.create_menu(visualiser, 6).await
                 }
                 match &mut menus[6] {
                     None => panic!("video recorder menu failed to be created"),
@@ -424,27 +449,27 @@ impl MenuState {
             }
             MenuSignal::RefreshGradients => self.refresh_gradients(menus, visualiser),
             MenuSignal::Import => {
-                menus[1] = self.create_menu(visualiser, 1, font).await;
+                menus[1] = self.create_menu(visualiser, 1).await;
                 self.refresh_gradients(menus, visualiser)
             }
         }
     }
 
-    async fn update_state_menu(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 7], visualiser: &mut Visualiser, index: usize, font: Font) {
+    async fn update_state_menu(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 7], visualiser: &mut Visualiser, index: usize) {
         match &mut menus[index] {
             None => {
-                menus[index] = self.create_menu(visualiser, index, font).await;
+                menus[index] = self.create_menu(visualiser, index).await;
             },
             Some(m) => {
                 let signal = m.as_mut().update(visualiser);
-                self.process_signal(menus, visualiser, signal, font).await;
+                self.process_signal(menus, visualiser, signal).await;
             }
         }
     }
 
     /// updates the menu for the current state
-    async fn update_state(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 7], visualiser: &mut Visualiser, font: Font) {
-        self.update_state_menu(menus, visualiser, self.map_state_indexes(), font).await;
+    async fn update_state(&mut self, menus: &mut [Option<Box<dyn MenuType>>; 7], visualiser: &mut Visualiser) {
+        self.update_state_menu(menus, visualiser, self.map_state_indexes()).await;
     }
 
     fn get_editing_menu(&self, menus: &mut [Option<Box<dyn MenuType>>; 7], index: usize) -> bool {
@@ -470,15 +495,23 @@ pub struct Menu {
     gradient: Texture2D,
     text_colour: Color,
     state_font: Font,
-    text_font: Font,
     open_button: Button,
     close_button: Button,
     navbar: Navbar,
     menus: [Option<Box<dyn MenuType>>; 7],
+    pub leave_menu: LeaveMenu,
     updated_gradient: bool
 }
 impl Menu {
-    pub async fn new() -> Menu {
+    pub async fn new(visualiser: &Visualiser) -> Menu {
+        let button_border = screen_width()*NAVBAR_BORDER_WIDTH_PROPORTION;
+        let open_rect = Rect::new(0., 0., 
+            screen_height()*NAVBAR_HEIGHT_PROPORTION,
+            screen_height()*NAVBAR_HEIGHT_PROPORTION
+        );
+        let mut close_rect = open_rect.clone();
+        close_rect.x = screen_width()*MENU_SCREEN_PROPORTION;
+
         Menu { 
             state: MenuState::Closed,
             visualiser_menu_size: ScreenDimensions::new(
@@ -488,39 +521,17 @@ impl Menu {
             gradient: Texture2D::empty(),
             text_colour: BLACK,
             state_font: load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap(),
-            text_font: load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap(),
-            open_button: Button::new(
-                (20., 20.),
-                (0., 0.),
-                vec![
-                    Box::new(ButtonColourElement::new(PINK, (20., 20.), (0., 0.), 0)),
-                    Box::new(ButtonColourElement::new(BLACK, (15., 15.), (2.5, 2.5), 3)),
-                    Box::new(ButtonImageElement::new(
-                        load_image("assets/triangle.png").await.unwrap(), 1.,
-                        DrawTextureParams { dest_size: Some(Vec2::new(15., 15.)), flip_x: true, ..Default::default() },
-                        (2.5, 2.5), 4
-                    ))
-                ],
-                vec![Box::new(ButtonColourElement::new(WHITE, (20., 20.), (0., 0.), 1))],
-                vec![Box::new(ButtonColourElement::new(BLACK, (20., 20.), (0., 0.), 2))]
+            open_button: Button::gradient_border_and_image(visualiser, &open_rect, button_border, 
+                load_image("assets/triangle.png").await.unwrap(), DrawTextureParams { flip_x: true, ..Default::default() }, 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
-            close_button: Button::new(
-                (20., 20.),
-                (MENU_SCREEN_PROPORTION*screen_width(), 0.),
-                vec![
-                    Box::new(ButtonColourElement::new(PINK, (20., 20.), (0., 0.), 0)),
-                    Box::new(ButtonColourElement::new(BLACK, (15., 15.), (2.5, 2.5), 3)),
-                    Box::new(ButtonImageElement::new(
-                        load_image("assets/triangle.png").await.unwrap(), 1.,
-                        DrawTextureParams { dest_size: Some(Vec2::new(15., 15.)), flip_x: false, ..Default::default() },
-                        (2.5, 2.5), 4
-                    ))
-                ],
-                vec![Box::new(ButtonColourElement::new(WHITE, (20., 20.), (0., 0.), 1))],
-                vec![Box::new(ButtonColourElement::new(BLACK, (20., 20.), (0., 0.), 2))]
+            close_button: Button::gradient_border_and_image(visualiser, &close_rect, button_border, 
+                load_image("assets/triangle.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             navbar: Navbar::new().await,
             menus: [None, None, None, None, None, None, None],
+            leave_menu: LeaveMenu::new(visualiser).await,
             updated_gradient: false
         }
     }
@@ -545,21 +556,27 @@ impl Menu {
         );
         self.navbar.back = self.gradient;
         self.text_colour = get_brightest_colour(self.gradient);
+
+        self.leave_menu.refresh_gradients(visualiser);
+
+        self.open_button.refresh_gradient(visualiser);
+        self.close_button.refresh_gradient(visualiser);
+
         self.updated_gradient = true;
     }
 
     /// updates the menu every frame
     pub async fn update(&mut self, visualiser: &mut Visualiser) {
-        if self.state == MenuState::Closed {
-            self.menu_state_closed(visualiser);
-            return;
-        }
-        
         if !self.updated_gradient {
             self.update_gradient(visualiser);
         }
 
-        self.state.update_state(&mut self.menus, visualiser, self.text_font).await;
+        if self.state == MenuState::Closed {
+            self.menu_state_closed(visualiser);
+            return;
+        }
+
+        self.state.update_state(&mut self.menus, visualiser).await;
         match self.state {
             MenuState::UpdateGradient(next_i) => {
                 self.update_gradient(visualiser);
@@ -600,6 +617,7 @@ trait ButtonElement: ButtonElementClone {
     /// lower draw order => drawn first
     fn get_draw_order(&self) -> usize;
     fn refresh_gradient(&mut self, _visualiser: &Visualiser) {}
+    fn refresh_from_container(&mut self, _visualiser: &Visualiser, _container: &Rect) {}
     fn drop_textures(&self) {}
     fn gradient_change_layer_i(&mut self, _layer_i: usize) {}
 }
@@ -775,6 +793,53 @@ impl ButtonElement for ButtonColourElement {
 }
 
 #[derive(Clone)]
+struct ButtonTextElement {
+    text: InputLabel,
+    draw_order: usize
+}
+impl ButtonTextElement {
+    fn new(text: &str, font: Font, font_size: f32, color: Color, padding: f32, alignment: TextAlign, draw_order: usize) -> ButtonTextElement {
+        ButtonTextElement { 
+            text: InputLabel::new(text, font, font_size, color, true, padding, alignment),
+            draw_order
+        }
+    }
+
+    fn get_gradient_colour(visualiser: &Visualiser, container: &Rect) -> Color {
+        let gradient = get_back_gradient(visualiser, container.x as u16, container.w as u16, container.h as u16);
+        let colour = get_brightest_colour(gradient);
+        Texture2D::delete(&gradient);
+        colour
+    }
+
+    fn new_gradient_colour(
+        visualiser: &Visualiser, 
+        text: &str, font: Font, font_size: f32, padding: f32, 
+        container: &Rect,
+        alignment: TextAlign, draw_order: usize
+    ) -> ButtonTextElement {
+        ButtonTextElement::new(text, font, font_size, 
+            ButtonTextElement::get_gradient_colour(visualiser, container), 
+            padding, alignment, draw_order
+        )
+    }
+}
+impl ButtonElement for ButtonTextElement {
+    fn draw(&self, button_rect: &Rect) {
+        let container = InputBox::from_outer_rect(button_rect.clone(), 0.);
+        self.text.draw(&container);
+    }
+
+    fn get_draw_order(&self) -> usize {
+        self.draw_order
+    }
+
+    fn refresh_from_container(&mut self, visualiser: &Visualiser, container: &Rect) {
+        self.text.refresh_gradient(ButtonTextElement::get_gradient_colour(visualiser, container));
+    }
+}
+
+#[derive(Clone)]
 pub struct Button {
     rect: Rect,
     back_elements: Vec<Box<dyn ButtonElement>>,
@@ -871,6 +936,26 @@ impl Button {
         )
     }
 
+    fn gradient_border_and_text(
+        visualiser: &Visualiser,
+        rect: &Rect,
+        border_size: f32,
+        text: &str, font: Font, font_size: f32,
+        text_padding: f32, text_align: TextAlign,
+        hover_colour: Color, hold_colour: Color
+    ) -> Button {
+        Button::from_rect(
+            rect, 
+            vec![
+                Box::new(ButtonGradientElement::full_back(visualiser, None, rect, WHITE, 0)),
+                Box::new(ButtonColourElement::inner_from_border(rect, border_size, 1)),
+                Box::new(ButtonTextElement::new_gradient_colour(visualiser, text, font, font_size, text_padding, rect, text_align, 2))
+            ], 
+            vec![Box::new(ButtonColourElement::full_button(rect, hover_colour, 3))],
+            vec![Box::new(ButtonColourElement::full_button(rect, hold_colour, 4))]
+        )
+    }
+
     /// call while button is active to carry out its tasks
     fn update(&mut self) {
         self.draw();
@@ -924,6 +1009,7 @@ impl Button {
             .chain(self.hold_elements.iter_mut()).collect();
         for element in all_elements {
             element.refresh_gradient(visualiser);
+            element.refresh_from_container(visualiser, &self.rect)
         }
     }
 
@@ -2282,16 +2368,165 @@ trait MenuType {
     fn refresh_gradients(&mut self, visualiser: &Visualiser);
 }
 
+struct JuliaEditor {
+    seed_re: TextBox,
+    seed_im: TextBox,
+    dims: ScreenDimensions,
+    select_rect: Rect,
+    select_image: Texture2D,
+    request_render: bool,
+    rendering_image: Arc<Mutex<Image>>,
+    pixel_step: f64,
+    progress_tracker: Arc<Mutex<usize>>,
+    saved_julia_seed: Complex,
+    prev_julia_seed: Complex
+}
+impl JuliaEditor {
+    async fn new(visualiser: &Visualiser, seed_re_input_box: GradientInputBox) -> JuliaEditor {
+        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+        let box_vert_padding = screen_height() * DEFAULT_INPUT_BOX_VERT_PADDING;
+
+        let seed_im_input_box = seed_re_input_box.next_vert(visualiser, box_vert_padding, true);
+
+        let select_rect = Rect::new(
+            screen_width()*JULIAEDITOR_HOR_PADDING, 
+            seed_im_input_box.outer_rect().bottom() + screen_height()*MENU_VERT_PADDING,
+            screen_width()*(MENU_SCREEN_PROPORTION - 2.*JULIAEDITOR_HOR_PADDING),
+            screen_width()*(MENU_SCREEN_PROPORTION - 2.*JULIAEDITOR_HOR_PADDING),
+        );
+
+        JuliaEditor {
+            seed_re: TextBox::new(seed_re_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "seed (re)", true),
+                InputLabel::default_input_box_content(font), "0"
+            ),
+            seed_im: TextBox::new(seed_im_input_box, 
+                InputLabel::default_input_box_label(visualiser, font, "seed (im)", true),
+                InputLabel::default_input_box_content(font), "0"
+            ),
+            dims: ScreenDimensions::new(select_rect.w as usize, select_rect.h as usize),
+            select_rect,
+            select_image: Texture2D::empty(),
+            request_render: true,
+            rendering_image: Arc::new(Mutex::new(Image::empty())),
+            pixel_step: 3.5 / select_rect.w as f64,
+            progress_tracker: Arc::new(Mutex::new(0)),
+            saved_julia_seed: Complex::new(0., 0.),
+            prev_julia_seed: Complex::new(0., 0.)
+        }
+    }
+
+    fn update(&mut self, visualiser: &mut Visualiser) {
+        if !visualiser.fractal.is_julia() { return }
+
+        let seed = visualiser.fractal.unwrap_julia_seed();
+
+        let mut changed_seed = false;
+        if let Some(Ok(new)) = self.seed_re.update(seed.double.real.to_string())
+                                   .and_then(|r| Some(r.parse::<f64>())) {
+            seed.set_real(new);
+            changed_seed = true;
+        }
+
+        if let Some(Ok(new)) = self.seed_im.update(seed.double.im.to_string())
+                                   .and_then(|i| Some(i.parse::<f64>())) {
+            seed.set_im(new);
+            changed_seed = true;
+        }
+
+        if changed_seed {
+            self.saved_julia_seed = seed.double.clone();
+            visualiser.generate_image();
+        }
+
+        draw_rect(&self.select_rect, WHITE);
+        draw_texture(self.select_image, self.select_rect.x, self.select_rect.y, WHITE);
+        let selected_pixel = self.get_selected_pixel().offset(Vec2::new(self.select_rect.x, self.select_rect.y));
+        draw_rect(&selected_pixel, RED);
+        
+        self.process_click(visualiser);
+
+        if self.request_render && self.progress_tracker.lock().unwrap().clone() == 0 {
+            self.rendering_image = Arc::new(Mutex::new(Image::gen_image_color(
+                self.dims.x as u16, self.dims.y as u16, WHITE
+            )));
+            self.progress_tracker = Arc::new(Mutex::new(0));
+            visualiser.generate_given_image(
+                Arc::clone(&self.rendering_image), 
+                self.dims.clone(), 
+                Some(Fractal::Mandelbrot),
+                self.pixel_step, 
+                Some(ComplexType::Double(Complex::new(-0.5, 0.))),
+                1,
+                Arc::clone(&self.progress_tracker),
+                false
+            );
+            self.request_render = false;
+        }
+
+        if self.progress_tracker.lock().unwrap().clone() <= self.dims.numpixels() {
+            Texture2D::delete(&self.select_image);
+            self.select_image = Texture2D::from_image(&self.rendering_image.lock().unwrap().clone());
+            self.progress_tracker = Arc::new(Mutex::new(0));
+        }
+    }
+
+    fn get_selected_pixel(&self) -> Rect {
+        Rect::new(
+            (((self.saved_julia_seed.real+0.5) / self.pixel_step + self.dims.x as f64 / 2.) as f32).clamp(0., self.select_rect.w),
+            ((self.saved_julia_seed.im / self.pixel_step + self.dims.y as f64 / 2.) as f32).clamp(0., self.select_rect.h),
+            2., 2.
+        )
+    }
+
+    fn process_click(&mut self, visualiser: &mut Visualiser) {
+        let seed = visualiser.fractal.unwrap_julia_seed();
+
+        self.prev_julia_seed = seed.double.clone();
+
+        if !self.select_rect.contains(mouse_position().into()) {
+            if seed.double != self.saved_julia_seed {
+                *seed = JuliaSeed::new(self.saved_julia_seed.real, self.saved_julia_seed.im);
+            }
+            return;
+        }
+
+        *seed = JuliaSeed::new(
+            ( mouse_position().0 - self.select_rect.center().x ) as f64 * self.pixel_step - 0.5,
+            ( mouse_position().1 - self.select_rect.center().y ) as f64 * self.pixel_step
+        );
+        if seed.double != self.prev_julia_seed {
+            visualiser.generate_image();
+        }
+
+        if is_mouse_button_pressed(MouseButton::Left) {
+            self.saved_julia_seed = visualiser.fractal.unwrap_julia_seed().double;
+        }
+    }
+
+    fn refresh_gradient(&mut self, visualiser: &Visualiser) {
+        self.seed_re.refresh_gradient(visualiser);
+        self.seed_im.refresh_gradient(visualiser);
+        self.request_render = true;
+    }
+
+    fn get_editing(&self) -> bool {
+        self.seed_re.selected || self.seed_im.selected
+    }
+}
+
 struct GeneralMenu {
     center_re: TextBox,
     center_im: TextBox,
     magnification: TextBox,
     max_iterations: TextBox,
     bailout: TextBox,
+    julia_editor: JuliaEditor,
     progress_bar: ProgressBar
 }
 impl GeneralMenu {
-    fn new(visualiser: &Visualiser, font: Font) -> GeneralMenu {
+    async fn new(visualiser: &Visualiser) -> GeneralMenu {
+        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
         let box_vert_padding = screen_height() * DEFAULT_INPUT_BOX_VERT_PADDING;
 
         let center_re_input_box = GradientInputBox::default_top(visualiser);
@@ -2299,6 +2534,8 @@ impl GeneralMenu {
         let magnification_input_box = center_im_input_box.next_vert(visualiser, box_vert_padding, true);
         let max_iter_input_box = magnification_input_box.next_vert(visualiser, box_vert_padding, true);
         let bailout_input_box = max_iter_input_box.next_vert(visualiser, box_vert_padding, true);
+
+        let seed_re_input_box = bailout_input_box.next_vert(visualiser, box_vert_padding, true);
 
         let input_boxes = vec![
             center_re_input_box, center_im_input_box, magnification_input_box, max_iter_input_box, bailout_input_box
@@ -2310,6 +2547,7 @@ impl GeneralMenu {
             magnification: GeneralMenu::create_textbox(visualiser, &input_boxes, font, 2),
             max_iterations: GeneralMenu::create_textbox(visualiser, &input_boxes, font, 3),
             bailout: GeneralMenu::create_textbox(visualiser, &input_boxes, font, 4),
+            julia_editor: JuliaEditor::new(visualiser, seed_re_input_box).await,
             progress_bar: ProgressBar::new(
                 visualiser, 
                 Rect::new(
@@ -2398,6 +2636,8 @@ impl MenuType for GeneralMenu {
             }
         }
 
+        self.julia_editor.update(visualiser);
+
         if visualiser.rendering {
             self.progress_bar.draw(
                 visualiser.progress_tracker.lock().unwrap().clone() as f32 / 
@@ -2407,7 +2647,6 @@ impl MenuType for GeneralMenu {
         } else {
             self.progress_bar.draw(1., false, true);
         }
-        
 
         MenuSignal::None
     }
@@ -2416,13 +2655,14 @@ impl MenuType for GeneralMenu {
         for text_box in self.all_text_boxes().iter() {
             if text_box.selected { return true }
         }
-        false
+        self.julia_editor.get_editing()
     }
 
     fn refresh_gradients(&mut self, visualiser: &Visualiser) {
         for text_box in self.all_text_boxes().iter_mut() {
             text_box.refresh_gradient(visualiser);
         }
+        self.julia_editor.refresh_gradient(visualiser);
         self.progress_bar.refresh_gradient(visualiser);
     }
 }
@@ -2851,7 +3091,9 @@ struct LayersMenu {
     bar_drag_start: f32
 }
 impl LayersMenu {
-    async fn new(visualiser: &Visualiser, font: Font) -> LayersMenu {
+    async fn new(visualiser: &Visualiser) -> LayersMenu {
+        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+
         let name_text_params = TextParams { font, 
             font_size: (screen_width()*LAYERMANAGER_NAME_TEXT_FONT_PROPORTION) as u16, color: WHITE, ..Default::default()};
         let layer_type_text_params = TextParams { font, 
@@ -4694,7 +4936,7 @@ impl VideoTimestampEditor {
         }
     }
 
-    /// draw and updare the `VideotimestampEditor`
+    /// draw and update the `VideotimestampEditor`
     /// 
     /// # Returns
     /// None if the timestamp was unchanged
@@ -5120,7 +5362,8 @@ impl MenuType for VideoRecorderMenu {
         self.sumbit_button.update();
         if self.sumbit_button.clicked {
             visualiser.video_recorder.previewing = false;
-            return MenuSignal::RefreshGradients;
+            // return MenuSignal::RefreshGradients;
+            return MenuSignal::Import;
         }
 
         self.cancel_button.update();
@@ -5128,7 +5371,8 @@ impl MenuType for VideoRecorderMenu {
             visualiser.video_recorder = self.old_recorder.clone();
             self.timeline_editor.load(&visualiser.video_recorder);
             visualiser.video_recorder.previewing = false;
-            return MenuSignal::RefreshGradients;
+            // return MenuSignal::RefreshGradients;
+            return MenuSignal::Import;
         }
 
         MenuSignal::None
@@ -5171,5 +5415,151 @@ impl MenuType for VideoRecorderMenu {
         self.preview_seconds.refresh_gradient(visualiser);
         self.sumbit_button.refresh_gradient(visualiser);
         self.cancel_button.refresh_gradient(visualiser);
+    }
+}
+
+pub struct LeaveMenu {
+    leave_button: Button,
+    close_button: Button,
+    input_box: GradientInputBox,
+    mandelbrot: Button,
+    julia: Button,
+    exit: Button,
+    open: bool
+}
+impl LeaveMenu {
+    async fn new(visualiser: &Visualiser) -> LeaveMenu {
+        let leave_rect = Rect::new(
+            screen_width() - screen_height()*NAVBAR_HEIGHT_PROPORTION,
+            0., 
+            screen_height()*NAVBAR_HEIGHT_PROPORTION,
+            screen_height()*NAVBAR_HEIGHT_PROPORTION
+        );
+
+        let border_size = screen_width()*LEAVEMENU_BORDER_SIZE;
+
+        let outer_rect = Rect::new(
+            0.5*screen_width()*(1.-LEAVEMENU_WIDTH),
+            0.5*screen_height()*(1.-LEAVEMENU_HEIGHT),
+            screen_width()*LEAVEMENU_WIDTH,
+            screen_height()*LEAVEMENU_HEIGHT
+        );
+        let input_box = GradientInputBox::from_outer_rect(visualiser, outer_rect, border_size);
+
+        let mandelbrot_rect = Rect::new(
+            outer_rect.center().x - 0.5*screen_width()*LEAVEMENU_OPTION_WIDTH,
+            outer_rect.y + screen_height()*LEAVEMENU_VERT_PADDING,
+            screen_width()*LEAVEMENU_OPTION_WIDTH,
+            screen_height()*LEAVEMENU_OPTION_HEIGHT
+        );
+        let mut julia_rect = mandelbrot_rect.clone();
+        julia_rect.y += screen_height()*(LEAVEMENU_OPTION_HEIGHT+LEAVEMENU_VERT_PADDING);
+
+        let exit_rect = Rect::new(
+            outer_rect.center().x - 0.5*screen_width()*LEAVEMENU_EXIT_SIZE,
+            outer_rect.bottom() - screen_height()*LEAVEMENU_VERT_PADDING - screen_width()*LEAVEMENU_EXIT_SIZE,
+            screen_width()*LEAVEMENU_EXIT_SIZE, screen_width()*LEAVEMENU_EXIT_SIZE
+        );
+
+        LeaveMenu {
+            leave_button: Button::gradient_border_and_image(
+                visualiser, &leave_rect, screen_width()*NAVBAR_BORDER_WIDTH_PROPORTION, 
+                load_image("assets/door.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
+            ),
+            close_button: Button::gradient_border_and_image(
+                visualiser, &leave_rect, screen_width()*NAVBAR_BORDER_WIDTH_PROPORTION, 
+                load_image("assets/cross.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
+            ),
+            input_box,
+            mandelbrot: LeaveMenu::get_option_button(visualiser, &mandelbrot_rect, "mandelbrot").await,
+            julia: LeaveMenu::get_option_button(visualiser, &julia_rect, "julia").await,
+            exit: Button::gradient_border_and_image(
+                visualiser, &exit_rect, border_size, 
+                load_image("assets/door.png").await.unwrap(), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
+            ),
+            open: false
+        }
+    }
+
+    async fn get_option_button(visualiser: &Visualiser, rect: &Rect, text: &str) -> Button {
+        let border_size = screen_width()*LEAVEMENU_BORDER_SIZE;
+
+        Button::gradient_border_and_text(
+            visualiser, &rect, border_size, 
+            text, load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap(), 
+            screen_width()*LEAVEMENU_OPTION_FONT_PROPORTION, 0., TextAlign::Centre, 
+            HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
+        )
+    }
+
+    fn refresh_gradients(&mut self, visualiser: &Visualiser) {
+        self.leave_button.refresh_gradient(visualiser);
+        self.input_box.refresh_gradient(visualiser);
+        self.mandelbrot.refresh_gradient(visualiser);
+        self.julia.refresh_gradient(visualiser);
+        self.exit.refresh_gradient(visualiser);
+    }
+
+    pub fn update(&mut self, running: &mut bool, visualiser: &mut Visualiser) {
+        if !self.open { 
+            self.leave_button.update();
+            if self.leave_button.clicked {
+                self.open = true;
+            } else {
+                return;
+            }
+        }
+
+        draw_rect(
+            &Rect::new(0., 0., screen_width(), screen_height()),
+            LEAVEMENU_BACK_OVERLAY
+        );
+
+        self.close_button.update();
+        if self.close_button.clicked {
+            self.open = false;
+            return;
+        }
+
+        if is_mouse_button_pressed(MouseButton::Left) && !self.input_box.outer_rect().contains(mouse_position().into()) {
+            self.open = false;
+            return;
+        }
+
+        self.input_box.draw(None);
+
+        if visualiser.fractal.is_mandelbrot() {
+            self.mandelbrot.hovering = true;
+            self.mandelbrot.holding = true;
+            self.mandelbrot.draw();
+        } else {
+            self.mandelbrot.update();
+            if self.mandelbrot.clicked {
+                visualiser.center = ComplexType::Double(Complex::new(-0.5, 0.));
+                visualiser.set_fractal(Fractal::Mandelbrot);
+                self.open = false;
+            }
+        }
+    
+        if visualiser.fractal.is_julia() {
+            self.julia.hovering = true;
+            self.julia.holding = true;
+            self.julia.draw()
+        } else {
+            self.julia.update();
+            if self.julia.clicked {
+                visualiser.center = ComplexType::Double(Complex::new(0., 0.));
+                visualiser.set_fractal(Fractal::Julia(JuliaSeed::new(0., 0.)));
+                self.open = false;
+            }
+        }
+
+        self.exit.update();
+        if self.exit.clicked {
+            *running = false;
+        }
     }
 }

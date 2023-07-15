@@ -19,7 +19,7 @@ use super::{*, menu::DropDownType, get_str_between};
 /// 
 /// # Returns
 /// returns if the point is in the set or not
-fn diverges_implementors_double(c: Complex, max_iterations: u32, bailout2: f64, implementations: &mut Vec<LayerImplementation>) -> bool {
+fn diverges_implementors_double(fractal: &Fractal, c: Complex, max_iterations: u32, bailout2: f64, implementations: &mut Vec<LayerImplementation>) -> bool {
     let mut z = c;
     for im in implementations.iter_mut() {
         im.before(max_iterations, bailout2);
@@ -38,7 +38,7 @@ fn diverges_implementors_double(c: Complex, max_iterations: u32, bailout2: f64, 
             im.during_double(z, i);
         }
 
-        z = z.square() + c;
+        fractal.iterate_double(&mut z, c)
     }
 
     for im in implementations.iter_mut() {
@@ -54,7 +54,7 @@ fn diverges_implementors_double(c: Complex, max_iterations: u32, bailout2: f64, 
 /// 
 /// # Returns
 /// returns if the point is in the set or not
-fn diverges_implementors_big(c: BigComplex, max_iterations: u32, bailout2: f64, implementations: &mut Vec<LayerImplementation>) -> bool {
+fn diverges_implementors_big(fractal: &Fractal, c: BigComplex, max_iterations: u32, bailout2: f64, implementations: &mut Vec<LayerImplementation>) -> bool {
     let mut z = c.clone();
     for im in implementations.iter_mut() {
         im.before(max_iterations, bailout2);
@@ -73,7 +73,8 @@ fn diverges_implementors_big(c: BigComplex, max_iterations: u32, bailout2: f64, 
             im.during_big(&z, i);
         }
 
-        z = &z.square() + &c;
+        // z = &z.square() + &c;
+        fractal.iterate_big(&mut z, &c);
     }
 
     for im in implementations.iter_mut() {
@@ -89,7 +90,7 @@ fn diverges_implementors_big(c: BigComplex, max_iterations: u32, bailout2: f64, 
 /// 
 /// # Returns
 /// returns if the point is in the set or not
-fn diverges_implementors_big_perturbation(
+fn diverges_implementors_big_perturbation_mandelbrot(
     dc: Complex, ref_z: &Vec<Complex>, max_ref_iteration: usize, 
     max_iterations: u32, bailout2: f64,
     implementations: &mut Vec<LayerImplementation>
@@ -103,6 +104,7 @@ fn diverges_implementors_big_perturbation(
     }
 
     for i in 0..max_iterations {
+        // needs to change for fracal
         dz =  ref_z[ref_iteration] * dz * 2. + dz.square() + dc;
         ref_iteration += 1;
 
@@ -911,15 +913,19 @@ impl Layers {
 
     /// get the colour for the given complex number after passing 
     /// through all the layers
-    pub fn colour_pixel(&self, c: ComplexType, max_iterations: u32, bailout2: f64) -> Color {
-        self.colour_pixel_implementors(c, max_iterations, bailout2)
+    pub fn colour_pixel(&self, fractal: &Fractal, c: ComplexType, max_iterations: u32, bailout2: f64) -> Color {
+        self.colour_pixel_implementors(fractal, c, max_iterations, bailout2)
     }
 
-    fn colour_pixel_implementors(&self, c: ComplexType, max_iterations: u32, bailout2: f64) -> Color {
+    fn colour_pixel_implementors(&self, fractal: &Fractal, c: ComplexType, max_iterations: u32, bailout2: f64) -> Color {
         let mut implementors = self.implementors.clone();
         let in_set = match c {
-            ComplexType::Double(c) => diverges_implementors_double(c, max_iterations, bailout2, &mut implementors),
-            ComplexType::Big(c) => diverges_implementors_big(c, max_iterations, bailout2, &mut implementors)
+            ComplexType::Double(c) => diverges_implementors_double(
+                fractal, c, max_iterations, bailout2, &mut implementors
+            ),
+            ComplexType::Big(c) => diverges_implementors_big(
+                fractal, c, max_iterations, bailout2, &mut implementors
+            )
         };
 
         let mut colour: Option<Color> = None;
@@ -935,12 +941,12 @@ impl Layers {
     }
 
     pub fn colour_pixel_implementors_perturbed(
-        &self, 
+        &self, _fractal: &Fractal,
         dc: Complex, ref_z: &Vec<Complex>, max_ref_iteration: usize, 
         max_iterations: u32, bailout2: f64
     ) -> Color {
         let mut implementors = self.implementors.clone();
-        let in_set = diverges_implementors_big_perturbation(
+        let in_set = diverges_implementors_big_perturbation_mandelbrot(
             dc, ref_z, max_ref_iteration, max_iterations, bailout2, &mut implementors);
 
         let mut colour: Option<Color> = None;

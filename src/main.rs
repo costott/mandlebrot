@@ -11,12 +11,10 @@ use mandlebrot::layers::*;
 use mandlebrot::palettes::*;
 use mandlebrot::App;
 
-#[allow(unused_imports)]
-use mandlebrot::Visualiser;
+use mandlebrot::{Visualiser, Fractal};
+
 #[allow(unused_imports)]
 use mandlebrot::Buhddabrot;
-#[allow(unused_imports)]
-use mandlebrot::JuliaSeed;
 
 fn window_conf() -> Conf {
     Conf {
@@ -31,6 +29,7 @@ async fn main() {
     next_frame().await;
 
     let mut visualiser = Visualiser::new(
+        Fractal::Mandelbrot,
         0.005, 
         500., 
         4.5,
