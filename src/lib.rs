@@ -99,6 +99,30 @@ fn check_chesum(text: &str) -> bool {
 
 }
 
+fn get_unique_image_name(name: &String, dims: &ScreenDimensions, folder: &std::path::Path) -> String {
+    for path in fs::read_dir(&folder).expect("unable to read folder") {
+        if let Ok(path) = path {
+            println!("{}", path.file_name().into_string().unwrap());
+            if &path.file_name().into_string().unwrap() == &format!["{}_{}.png", name, dims.to_string()] {
+                return get_unique_image_name(&format!["{}(1)", name], dims, folder);
+            }
+        }
+    }
+    name.to_owned()
+}
+
+fn get_unique_video_name(name: &String, folder: &std::path::Path) -> String {
+    for path in fs::read_dir(&folder).expect("unable to read folder") {
+        if let Ok(path) = path {
+            println!("{}", path.file_name().into_string().unwrap());
+            if &path.file_name().into_string().unwrap() == name {
+                return get_unique_video_name(&format!["{}(1)", name], folder);
+            }
+        }
+    }
+    name.to_owned()
+}
+
 pub struct App {
     visualiser: Visualiser,
     menu: Menu,
@@ -153,6 +177,25 @@ impl JuliaSeed {
         self.double.im = im;
         self.big = BigComplex::from_complex(self.double.clone());
     }
+
+    fn lerp_seeds(seed1: &JuliaSeed, seed2: &JuliaSeed, percent: f64) -> JuliaSeed {
+        JuliaSeed::new(
+            lerpf64(seed1.double.real, seed2.double.real, percent),
+            lerpf64(seed1.double.im, seed2.double.im, percent)
+        )
+    }
+
+    fn get_export_string(&self) -> String {
+        format!["{},{}", self.double.real.to_string(), self.double.im.to_string()]
+    }
+
+    fn import_from_str(seed: &str) -> JuliaSeed {
+        let values = seed.split(",").collect::<Vec<&str>>();
+        JuliaSeed::new(
+            values[0].parse::<f64>().unwrap(),
+            values[1].parse::<f64>().unwrap()
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -194,6 +237,34 @@ impl Fractal {
             Fractal::Julia(seed) => seed,
             _ => panic!("not julia")
         }
+    }
+
+    fn lerp_fractal(fractal1: &Fractal, fractal2: &Fractal, percent: f64) -> Fractal {
+        match fractal2 {
+            Fractal::Mandelbrot => Fractal::Mandelbrot,
+            Fractal::Julia(seed2) => match fractal1 {
+                Fractal::Mandelbrot => Fractal::Julia(seed2.clone()),
+                Fractal::Julia(seed1) => Fractal::Julia(JuliaSeed::lerp_seeds(seed1, seed2, percent))
+            }
+        }
+    }
+
+    fn get_export_string(&self) -> String {
+        match self {
+            Fractal::Mandelbrot => String::from("Mandelbrot"),
+            Fractal::Julia(seed) => format!["Julia({})", seed.get_export_string()]
+        }
+    }
+
+    fn import_from_str(fractal: &str) -> Fractal {
+        if fractal == "Mandelbrot" {
+            return Fractal::Mandelbrot;
+        }
+        if &fractal[0..=4] == "Julia" {
+            return Fractal::Julia(JuliaSeed::import_from_str(get_str_between(fractal, "(", ")")));
+        }
+
+        panic!("unknown fractal")
     }
 }
 
@@ -949,7 +1020,6 @@ impl Renderer {
         }
     }
     
-    #[allow(unused)]
     fn render_arbitrary(&self, split: &ThreadSplitter) {
         let center = match self.center {
             ComplexType::Big(ref c) => c.clone(),
@@ -1084,6 +1154,7 @@ impl ReferenceOrbit {
 
 /// stores the elements of the visualiser that need to be saved
 struct VisualiserParams {
+    fractal: Fractal,
     center_re: String,
     center_im: String,
     magnification: String,
@@ -1094,6 +1165,7 @@ struct VisualiserParams {
 impl VisualiserParams {
     fn empty() -> VisualiserParams {
         VisualiserParams { 
+            fractal: Fractal::Mandelbrot,
             center_re: String::from(""), 
             center_im: String::from(""), 
             magnification: String::from(""), 
@@ -1105,6 +1177,7 @@ impl VisualiserParams {
 
     fn get_params(visualiser: &Visualiser) -> VisualiserParams {
         VisualiserParams { 
+            fractal: visualiser.fractal.clone(),
             center_re: visualiser.center.real_string(), 
             center_im: visualiser.center.im_string(), 
             magnification: visualiser.get_magnification().to_string(), 
@@ -1116,6 +1189,7 @@ impl VisualiserParams {
 
     fn format_params(&self) -> String {
         let contents = format!("\
+{}
 center (re): {}
 center (im): {}
 magnification: {}
@@ -1123,6 +1197,7 @@ max iterations: {}
 bailout2: {}
 
 {}", 
+        self.fractal.get_export_string(), 
         self.center_re, self.center_im, self.magnification, self.max_iterations, self.bailout2,
         self.layers.get_export_string());
 
@@ -1137,11 +1212,14 @@ bailout2: {}
     }
 
     fn import_from_str(params: &str) -> VisualiserParams {
-        let lines = params.split("\n").collect::<Vec<&str>>();
+        let mut lines = params.split("\n").collect::<Vec<&str>>();
+
+        let fractal = lines.remove(0);
 
         let main_params: &Vec<String> = &lines[0..=4].iter().map(|l| l.split(": ").last().unwrap().to_string()).collect();
 
         VisualiserParams {
+            fractal: Fractal::import_from_str(fractal),
             center_re: main_params[0].clone(),
             center_im: main_params[1].clone(),
             magnification: main_params[2].clone(),
@@ -1153,6 +1231,7 @@ bailout2: {}
 
     fn get_timestamp_save_string(timestamp: &VideoTimestamp) -> String {
         let params = VisualiserParams {
+            fractal: timestamp.fractal.clone(),
             center_re: timestamp.center.real_string(),
             center_im: timestamp.center.im_string(),
             magnification: (0.005 / timestamp.pixel_step).to_string(),
@@ -1249,14 +1328,16 @@ impl Exporter {
         self.name = self.name.replace("[date]", &format!["{}", datetime.format_with_items(date.clone())]);
         self.name = self.name.replace("[time]", &format!["{}", datetime.format_with_items(time.clone())]);
 
-        let image_name = format!["{}_{}", self.name, self.dims.to_string()];
+        let name = get_unique_image_name(&self.name, &self.dims, &self.images_path);
+
+        let image_name = format!["{}_{}", name, self.dims.to_string()];
         let path = &format!["images/{}.png",
             image_name.clone()
         ];
         self.image.lock().unwrap().export_png(path);
 
         let mut save_path = self.images_path.clone();
-        save_path.push(format!["{}-save.txt", self.name]);
+        save_path.push(format!["{}-save.txt", name]);
         self.visualiser_params.save_params(&save_path);
 
         self.exporting = false;
@@ -1265,6 +1346,7 @@ impl Exporter {
 
 #[derive(Clone)]
 pub struct VideoTimestamp {
+    fractal: Fractal,
     center: ComplexType,
     pixel_step: f64,
     max_iterations: f32,
@@ -1275,6 +1357,7 @@ pub struct VideoTimestamp {
 impl VideoTimestamp {
     fn new(visualiser: &Visualiser, percent: f32) -> VideoTimestamp {
         VideoTimestamp { 
+            fractal: visualiser.fractal.clone(),
             center: visualiser.center.clone(), 
             pixel_step: visualiser.pixel_step, 
             max_iterations: visualiser.max_iterations,
@@ -1290,6 +1373,7 @@ impl VideoTimestamp {
         center.update_im_from_string(params.center_im);
 
         VideoTimestamp { 
+            fractal: params.fractal,
             center, 
             pixel_step: 0.005 / params.magnification.parse::<f64>().unwrap(), 
             max_iterations: params.max_iterations.parse::<f32>().unwrap(), 
@@ -1311,6 +1395,7 @@ impl VideoTimestamp {
         // let p = f64::min(z1/z2, z2/z1);
 
         VideoTimestamp { 
+            fractal: Fractal::lerp_fractal(&timestamp1.fractal, &timestamp2.fractal, percent),
             // center: ComplexType::lerp_complex(&timestamp1.center, &timestamp2.center, percent, arb_precision, p), 
             center: timestamp2.center.clone(),
             pixel_step, 
@@ -1494,7 +1579,7 @@ impl VideoRecorder {
 
         contents.push_str(&format!["{},{}\n", dimensions.to_string(), self.frames.to_string()]);
 
-        for timestamp in self.timestamps.iter() {
+        for timestamp in self.sorted_timestamps.iter() {
             contents.push_str(&format!["{}ts\n", timestamp.get_save()]);
         }
 
@@ -1533,11 +1618,17 @@ impl VideoRecorder {
 
         self.exporting = true;
 
+        self.videos_path = std::env::current_dir().unwrap();
+        self.videos_path.push("videos");
+
         let datetime = chrono::offset::Local::now();
         let date = StrftimeItems::new("%Y%m%d");
         let time_now = StrftimeItems::new("%H_%M_%S");
-        self.name = name.replace("[date]", &format!["{}", datetime.format_with_items(date.clone())]);
-        self.name = self.name.replace("[time]", &format!["{}", datetime.format_with_items(time_now.clone())]);
+        let mut name = name.replace("[date]", &format!["{}", datetime.format_with_items(date.clone())]);
+        name = name.replace("[time]", &format!["{}", datetime.format_with_items(time_now.clone())]);
+
+        self.name = get_unique_video_name(&name, &self.videos_path);
+
         self.videos_path.push(&self.name);
 
         match fs::create_dir(&self.videos_path) {
@@ -1615,7 +1706,7 @@ impl VideoRecorder {
         self.completed_frames -= 1;
     }
 
-    fn import_from_file(&mut self, file_path: &std::path::PathBuf) {
+    fn import_from_file(&mut self, file_path: &std::path::PathBuf, current_dimensions: &ScreenDimensions) {
         let save_file = fs::read_to_string(file_path).expect("Unable to read file");
 
         if !check_chesum(&save_file) { return }
@@ -1647,6 +1738,12 @@ impl VideoRecorder {
         self.frames = frames;
         self.changed = false;
         self.needs_resume = true;
+
+        // TO DELETE: just for bigrender1080p
+        let pixel_step_multiplier = current_dimensions.y as f64 / self.dims.y as f64;
+        for timestamp in self.sorted_timestamps.iter_mut() {
+            timestamp.pixel_step *= pixel_step_multiplier;
+        }
 
         // count rendered frames
         let folder = file_path.as_path().parent().unwrap();
@@ -1750,6 +1847,7 @@ impl Visualiser {
     }
 
     pub fn load_timestamp(&mut self, timestamp: &VideoTimestamp) {
+        self.fractal = timestamp.fractal.clone();
         self.center = timestamp.center.clone();
         self.set_pixel_step(timestamp.pixel_step);
         self.max_iterations = timestamp.max_iterations;
@@ -1764,6 +1862,7 @@ impl Visualiser {
     fn load_params(&mut self, params: VisualiserParams) {
         // todo: remove all unwrapping so even less chance of invalid data crashing
 
+        self.fractal = params.fractal;
         self.center.update_real_from_string(params.center_re);
         self.center.update_im_from_string(params.center_im);
         self.set_pixel_step(0.005 / params.magnification.parse::<f64>().unwrap());
@@ -1783,8 +1882,6 @@ impl Visualiser {
         let params_string = lines.join("\n");
         let params = VisualiserParams::import_from_str(&params_string);
         self.load_params(params);
-        // just for now as julia can't be saved yet
-        self.fractal = Fractal::Mandelbrot;
 
         self.update_precision();
         self.generate_image();
@@ -1866,13 +1963,20 @@ impl Visualiser {
         );
         let fractal = fractal.unwrap_or(self.fractal.clone());
 
+        let mut center = center;
         let reference_orbit = if !arb_precision {
             Arc::new(None)
         } else {
             Arc::new(Some(ReferenceOrbit::new(
                 &self.fractal,
-                match &self.center {
-                    ComplexType::Double(_) => panic!("arbitrary precision needs an arbitrary precision center"),
+                match &center {
+                    ComplexType::Double(_) => {
+                        center = center.make_big();
+                        match &center {
+                            ComplexType::Double(_) => panic!("failed to make center big"),
+                            ComplexType::Big(c) => c
+                        }
+                    },
                     ComplexType::Big(c) => c
                 }, 
                 self.max_iterations as usize,
@@ -1911,27 +2015,27 @@ impl Visualiser {
         let start_x = screen_width() - self.current_dimensions.x as f32;
         draw_texture(self.texture, start_x, 0.0, WHITE);
 
-        draw_text(
-            &get_fps().to_string(),
-            start_x + 30., 
-            10., 
-            20., 
-            BLACK
-        );
-        draw_text(
-            &self.quality.to_string(),
-            start_x + 60.,
-            10.,
-            20.,
-            BLACK
-        );
-        draw_text(
-            &self.max_iterations.to_string(),
-            screen_width() - 50., 
-            10., 
-            20., 
-            BLACK
-        );
+        // draw_text(
+        //     &get_fps().to_string(),
+        //     start_x + 30., 
+        //     10., 
+        //     20., 
+        //     BLACK
+        // );
+        // draw_text(
+        //     &self.quality.to_string(),
+        //     start_x + 60.,
+        //     10.,
+        //     20.,
+        //     BLACK
+        // );
+        // draw_text(
+        //     &self.max_iterations.to_string(),
+        //     screen_width() - 50., 
+        //     10., 
+        //     20., 
+        //     BLACK
+        // );
     }
 
     fn update(&mut self) {
@@ -1991,18 +2095,26 @@ impl Visualiser {
 
         let movement = FBig::try_from(self.move_speed * dt).unwrap().with_precision(0).value();
 
+        let old_real = center.real.clone();
         center.real += movement.clone() * FBig::try_from(match (is_key_down(KeyCode::A), is_key_down(KeyCode::D)) {
             (true, false) => -1.0,
             (false, true) => 1.0,
             _ => {moved_x = false; 0.0}
         }).unwrap();
+        if moved_x && old_real == center.real {
+            center.real = center.real.with_precision(old_real.precision()+1).value();
+        }
 
+        let old_im = center.im.clone();
         center.im += movement * FBig::try_from(match (is_key_down(KeyCode::W), is_key_down(KeyCode::S)) {
             (true, false) => -1.0,
             (false, true) => 1.0,
             _ => {moved_y = false; 0.0}
         }).unwrap();
-
+        if moved_y && old_im == center.im {
+            center.im = center.im.with_precision(old_im.precision()+1).value();
+        }
+        
         (ComplexType::Big(center), moved_x || moved_y)
     }
 
@@ -2130,8 +2242,8 @@ impl Visualiser {
     fn start_recording(&mut self, name: &String, dimensions: ScreenDimensions, time: usize, fps: usize) {
         self.cancel_current_render();
         self.video_recorder.start_export(
-            name, dimensions, 
-            &self.current_dimensions, 
+            name, 
+            dimensions, &self.current_dimensions, 
             time, fps
         );
     }

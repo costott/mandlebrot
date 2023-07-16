@@ -212,6 +212,14 @@ const LEAVEMENU_VERT_PADDING: f32 = LEAVEMENU_HEIGHT/20.;
 /// proportion of the screen width for the size of the exit button on the leave menu
 const LEAVEMENU_EXIT_SIZE: f32 = LEAVEMENU_WIDTH/10.;
 
+fn load_png_image(bytes: &[u8]) -> Image {
+    Image::from_file_with_format(bytes, Some(ImageFormat::Png))
+}
+
+async fn main_font() -> Font {
+    load_ttf_font_from_bytes(include_bytes!("../assets/Montserrat-SemiBold.ttf")).unwrap()
+}
+
 /// gives a texture which is a snippet of the gradient for the menu at the given place
 fn get_back_gradient(visualiser: &Visualiser, start_x: u16, width: u16, height: u16) -> Texture2D {
     let mut image = Image::gen_image_color(width, height, BLACK);
@@ -520,13 +528,15 @@ impl Menu {
             ),
             gradient: Texture2D::empty(),
             text_colour: BLACK,
-            state_font: load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap(),
+            state_font: main_font().await,
             open_button: Button::gradient_border_and_image(visualiser, &open_rect, button_border, 
-                load_image("assets/triangle.png").await.unwrap(), DrawTextureParams { flip_x: true, ..Default::default() }, 
+                load_png_image(include_bytes!("../assets/triangle.png")),
+                DrawTextureParams { flip_x: true, ..Default::default() }, 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             close_button: Button::gradient_border_and_image(visualiser, &close_rect, button_border, 
-                load_image("assets/triangle.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/triangle.png")),
+                DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             navbar: Navbar::new().await,
@@ -1033,11 +1043,21 @@ impl Navbar {
         Navbar {
             back: Texture2D::empty(),
             buttons: [
-                NavbarButton::new("assets/general.png", 0).await,
-                NavbarButton::new("assets/layers.png", 1).await,
-                NavbarButton::new("assets/editlayers.png", 2).await,
-                NavbarButton::new("assets/screenshot.png", 3).await,
-                NavbarButton::new("assets/video.png", 4).await
+                NavbarButton::new(
+                    load_png_image(include_bytes!("../assets/general.png")),0
+                ).await,
+                NavbarButton::new(
+                    load_png_image(include_bytes!("../assets/layers.png")), 1
+                ).await,
+                NavbarButton::new(
+                    load_png_image(include_bytes!("../assets/editlayers.png")), 2
+                ).await,
+                    NavbarButton::new(
+                        load_png_image(include_bytes!("../assets/screenshot.png")), 3
+                ).await,
+                    NavbarButton::new(
+                        load_png_image(include_bytes!("../assets/video.png")), 4
+                ).await
             ],
         }
     }
@@ -1099,7 +1119,7 @@ struct NavbarButton {
     hover_shade: Color
 }
 impl NavbarButton {
-    async fn new(image_path: &str, button_num: u32) -> NavbarButton {
+    async fn new(image: Image, button_num: u32) -> NavbarButton {
         let border_width = screen_width() * NAVBAR_BORDER_WIDTH_PROPORTION;
 
         let width = (screen_width() * MENU_SCREEN_PROPORTION - 5.*2.*border_width) / 5.;
@@ -1109,7 +1129,7 @@ impl NavbarButton {
         let x = screen_width() * NAVBAR_BORDER_WIDTH_PROPORTION + button_num as f32*( 2.*border_width + width );
 
         NavbarButton {
-            image: Texture2D::from_image(&load_image(image_path).await.unwrap()),
+            image: Texture2D::from_image(&image),
             image_params: DrawTextureParams { dest_size: Some(vec2(width, inactive_height)), ..Default::default()},
             active: button_num == 0,
             interact_rect: Rect::new(x-border_width, 0., width+2.*border_width, active_height+border_width),
@@ -2018,7 +2038,7 @@ impl<T: DropDownType<T> + std::cmp::PartialEq + Clone> DropDown<T> {
             variants, 
             closed_grad_input_box, open_grad_input_box,
             label, content_label,
-            arrow_image: Texture2D::from_image(&load_image("assets/down.png").await.unwrap()),
+            arrow_image: Texture2D::from_image(&load_png_image(include_bytes!("../assets/down.png"))),
             open: false, hovering: false, hover_index: 0
         }
     }
@@ -2205,7 +2225,7 @@ impl Carousel {
             grad_input_box, content_label,
             left_arrow_rect: Rect::new(inner_rect.x, inner_rect.y, inner_rect.h, inner_rect.h),
             right_arrow_rect: Rect::new(inner_rect.right()-inner_rect.h, inner_rect.y, inner_rect.h, inner_rect.h),
-            right_arrow_image:  Texture2D::from_image(&load_image("assets/forward.png").await.unwrap()),
+            right_arrow_image:  Texture2D::from_image(&load_png_image(include_bytes!("../assets/forward.png"))),
             hovering: false
         }
     }
@@ -2383,7 +2403,7 @@ struct JuliaEditor {
 }
 impl JuliaEditor {
     async fn new(visualiser: &Visualiser, seed_re_input_box: GradientInputBox) -> JuliaEditor {
-        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+        let font = main_font().await;
         let box_vert_padding = screen_height() * DEFAULT_INPUT_BOX_VERT_PADDING;
 
         let seed_im_input_box = seed_re_input_box.next_vert(visualiser, box_vert_padding, true);
@@ -2487,6 +2507,7 @@ impl JuliaEditor {
         if !self.select_rect.contains(mouse_position().into()) {
             if seed.double != self.saved_julia_seed {
                 *seed = JuliaSeed::new(self.saved_julia_seed.real, self.saved_julia_seed.im);
+                visualiser.generate_image();
             }
             return;
         }
@@ -2526,7 +2547,7 @@ struct GeneralMenu {
 }
 impl GeneralMenu {
     async fn new(visualiser: &Visualiser) -> GeneralMenu {
-        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+        let font = main_font().await;
         let box_vert_padding = screen_height() * DEFAULT_INPUT_BOX_VERT_PADDING;
 
         let center_re_input_box = GradientInputBox::default_top(visualiser);
@@ -2810,7 +2831,7 @@ impl LayerManager {
                 vec![
                     Box::new(ButtonColourElement::full_button(&pallete_button_rect, Color::new(0., 0., 0., 0.5), 1)),
                     Box::new(ButtonImageElement::new(
-                        load_image("assets/wrench.png").await.unwrap(), 0.7,
+                        load_png_image(include_bytes!("../assets/wrench.png")), 0.7,
                         DrawTextureParams { dest_size: Some(pallete_button_rect.size()), ..Default::default() },
                         (0., 0.), 2
                     ))
@@ -2839,7 +2860,7 @@ impl LayerManager {
             layer_type_text_params,
             edit_button: Button::gradient_border_and_image(
                 visualiser, &edit_button_rect, edit_button_border, 
-                load_image("assets/wrench.png").await.unwrap(), DrawTextureParams::default(),
+                load_png_image(include_bytes!("../assets/wrench.png")), DrawTextureParams::default(),
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             strength_slider: generate_strength_slider(strength_slider_text_params, inner_rect, layer.strength),
@@ -2861,7 +2882,7 @@ impl LayerManager {
             ).await,
             delete_button: Button::gradient_border_and_image(
                 visualiser, &delete_button_rect, edit_button_border, 
-                load_image("assets/cross.png").await.unwrap(), DrawTextureParams::default(),
+                load_png_image(include_bytes!("../assets/cross.png")), DrawTextureParams::default(),
                 HOVER_WHITE_OVERLAY, HOVER_RED_OVERLAY
             ),
             drag_rect: Rect::new(
@@ -3092,7 +3113,7 @@ struct LayersMenu {
 }
 impl LayersMenu {
     async fn new(visualiser: &Visualiser) -> LayersMenu {
-        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+        let font = main_font().await;
 
         let name_text_params = TextParams { font, 
             font_size: (screen_width()*LAYERMANAGER_NAME_TEXT_FONT_PROPORTION) as u16, color: WHITE, ..Default::default()};
@@ -3156,7 +3177,7 @@ impl LayersMenu {
                     5
                 )),
                 Box::new(ButtonImageElement::new(
-                    load_image("assets/plus.png").await.unwrap(),
+                    load_png_image(include_bytes!("../assets/plus.png")),
                     1.,
                     DrawTextureParams { dest_size: Some((cutout_width, cutout_width).into()), ..Default::default() },
                     (3. * cutout_width, (add_rect.h - cutout_width)/2.),
@@ -3488,7 +3509,7 @@ struct OrbitTrapEditor {
 }
 impl OrbitTrapEditor {
     async fn new(visualiser: &Visualiser) -> OrbitTrapEditor {
-        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+        let font = main_font().await;
         let font_size = (screen_width()*LAYEREDITOR_SPECIFIC_MENU_TITLE_FONT_PROPORTION) as u16;
 
         let title_height = measure_text(
@@ -3646,7 +3667,7 @@ struct LayerEditorMenu {
 impl LayerEditorMenu {
     async fn new(visualiser: &Visualiser) -> LayerEditorMenu {
         let carousel_font_size = screen_width()*LAYEREDITOR_CAROUSEL_FONT_PROPORTION;
-        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+        let font = main_font().await;
         
         let carousel_start_y = screen_height()*(NAVBAR_HEIGHT_PROPORTION+2.*STATE_TEXT_PADDING_PROPORTION) + screen_width()*STATE_TEXT_FONT_PROPORTION;
         let carousel_height = screen_height()*LAYEREDITOR_CAROUSEL_HEIGHT;
@@ -3909,7 +3930,7 @@ struct PaletteEditor {
 }
 impl PaletteEditor {
     async fn new(visualiser: &Visualiser) -> PaletteEditor {
-        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+        let font = main_font().await;
 
         let title_rect = Rect::new(0., 0., 
             screen_width()*MENU_SCREEN_PROPORTION, 
@@ -3981,8 +4002,8 @@ impl PaletteEditor {
             ),
             delete_button: Button::gradient_border_and_alternating_image(
                 visualiser, &delete_rect, button_border, 
-                load_image("assets/bin.png").await.unwrap(), DrawTextureParams::default(),
-                load_image("assets/binOpen.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/bin.png")), DrawTextureParams::default(),
+                load_png_image(include_bytes!("../assets/binOpen.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             red_slider: PaletteEditor::get_slider(0, visualiser, font, title_rect.h, vert_padding),
@@ -4008,12 +4029,12 @@ impl PaletteEditor {
             offset_slider: PaletteEditor::get_slider(5, visualiser, font, title_rect.h, vert_padding),
             sumbit_button: Button::gradient_border_and_image(
                 visualiser, &sumbit_rect, button_border, 
-                load_image("assets/tick.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/tick.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             cancel_button: Button::gradient_border_and_image(
                 visualiser, &cancel_rect, button_border,
-                load_image("assets/cross.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/cross.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             )
         }
@@ -4433,7 +4454,7 @@ struct ScreenshotMenu {
 }
 impl ScreenshotMenu {
     async fn new(visualiser: &Visualiser) -> ScreenshotMenu { 
-        let font =  load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+        let font =  main_font().await;
 
         let vert_padding = screen_height() * DEFAULT_INPUT_BOX_VERT_PADDING;
         let name_input_box = GradientInputBox::default_top(visualiser);
@@ -4481,17 +4502,17 @@ impl ScreenshotMenu {
             bar_grad: get_back_gradient(visualiser, 0, bar_rect.w as u16, bar_rect.h as u16),
             export: Button::gradient_border_and_image
             (visualiser, &export_rect, button_border, 
-                load_image("assets/export.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/export.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             cancel: Button::gradient_border_and_image(
                 visualiser, &cancel_rect, button_border, 
-                load_image("assets/stop.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/stop.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             import: Button::gradient_border_and_image(
                 visualiser, &import_rect, button_border, 
-                load_image("assets/import.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/import.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             progress_bar: ProgressBar::new(
@@ -4649,7 +4670,7 @@ struct VideoMenu {
 }
 impl VideoMenu {
     async fn new(visualiser: &Visualiser) -> VideoMenu {
-        let font =  load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+        let font =  main_font().await;
 
         let vert_padding = screen_height() * DEFAULT_INPUT_BOX_VERT_PADDING;
         let name_input_box = GradientInputBox::default_top(visualiser);
@@ -4711,27 +4732,27 @@ impl VideoMenu {
             bar_grad: get_back_gradient(visualiser, 0, bar_rect.w as u16, bar_rect.h as u16),
             record: Button::gradient_border_and_image(
                 visualiser, &edit_rect, button_border, 
-                load_image("assets/record.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/record.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             export: Button::gradient_border_and_image(
                 visualiser, &export_rect, button_border, 
-                load_image("assets/export.png").await.unwrap(), DrawTextureParams::default(),
+                load_png_image(include_bytes!("../assets/export.png")), DrawTextureParams::default(),
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             resume: Button::gradient_border_and_image(
                 visualiser, &resume_rect, button_border, 
-                load_image("assets/forward.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/forward.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             cancel: Button::gradient_border_and_image(
                 visualiser, &cancel_rect, button_border, 
-                load_image("assets/stop.png").await.unwrap(), DrawTextureParams::default(),
+                load_png_image(include_bytes!("../assets/stop.png")), DrawTextureParams::default(),
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             import: Button::gradient_border_and_image(
                 visualiser, &import_rect, button_border, 
-                load_image("assets/import.png").await.unwrap(), DrawTextureParams::default(),
+                load_png_image(include_bytes!("../assets/import.png")), DrawTextureParams::default(),
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             progress_bar: ProgressBar::new(
@@ -4863,7 +4884,7 @@ impl MenuType for VideoMenu {
                     .add_filter("Text Files", &["txt"])
                     .show_open_single_file() 
                 {
-                    visualiser.video_recorder.import_from_file(&file_path);
+                    visualiser.video_recorder.import_from_file(&file_path, &visualiser.current_dimensions);
                     return MenuSignal::RecordVideo;
                 }
             }
@@ -4997,7 +5018,6 @@ impl VideoTimelineEditor {
 
         let button_size = screen_width()*PALETTEEDITOR_BUTTON_WIDTH;
         let button_border = screen_width()*PALETTEEDIOR_BUTTON_BORDER_WIDTH;
-        let inner_button_size = button_size - 2.*button_border;
         let delete_button_start_x = screen_width()*(MENU_SCREEN_PROPORTION-PALETTEEDITOR_HOR_PADDING)-button_size;
 
         let add_rect = Rect::new(
@@ -5024,34 +5044,14 @@ impl VideoTimelineEditor {
             timestamp_editors: Vec::new(), 
             add_button: Button::gradient_border_and_image(
                 visualiser, &add_rect, button_border, 
-                load_image("assets/plus.png").await.unwrap(), DrawTextureParams::default(),
+                load_png_image(include_bytes!("../assets/plus.png")), DrawTextureParams::default(),
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ), 
-            delete_button: Button::from_rect(
-                &delete_rect, 
-                vec![
-                    Box::new(ButtonGradientElement::full_back(visualiser, None, &delete_rect, WHITE, 0)),
-                    Box::new(ButtonColourElement::inner_from_border(&delete_rect, button_border, 1)),
-                    Box::new(ButtonImageElement::new(
-                        load_image("assets/bin.png").await.unwrap(),
-                        1.0,
-                        DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
-                        (button_border, button_border),
-                        2
-                    ))
-                ], 
-                vec![
-                    Box::new(ButtonColourElement::inner_from_border(&delete_rect, button_border, 3)),
-                    Box::new(ButtonImageElement::new(
-                        load_image("assets/binOpen.png").await.unwrap(),
-                        1.0,
-                        DrawTextureParams {dest_size: Some((inner_button_size, inner_button_size).into()), ..Default::default()},
-                        (button_border, button_border),
-                        4
-                    )),
-                    Box::new(ButtonColourElement::full_button(&delete_rect, HOVER_WHITE_OVERLAY, 5))
-                ], 
-                vec![Box::new(ButtonColourElement::full_button(&delete_rect, HOVER_BLACK_OVERLAY, 6))]
+            delete_button: Button::gradient_border_and_alternating_image(
+                visualiser, &delete_rect, button_border, 
+                load_png_image(include_bytes!("../assets/bin.png")), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/binOpen.png")), DrawTextureParams::default(), 
+                HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             prev_selected_i: None,
             changed_preview: false
@@ -5233,7 +5233,7 @@ struct VideoRecorderMenu {
 }
 impl VideoRecorderMenu {
     async fn new(visualiser: &Visualiser) -> VideoRecorderMenu {
-        let font = load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap();
+        let font = main_font().await;
 
         let title_rect = Rect::new(0., 0., 
             screen_width()*MENU_SCREEN_PROPORTION, 
@@ -5300,7 +5300,7 @@ impl VideoRecorderMenu {
             bar_rect, 
             bar_grad: get_back_gradient(visualiser, bar_rect.x as u16, bar_rect.w as u16, bar_rect.h as u16),
             play: Button::gradient_border_and_image(visualiser, &play_rect, button_border, 
-                load_image("assets/next.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/next.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             preview_seconds: TextBox::new(
@@ -5311,11 +5311,11 @@ impl VideoRecorderMenu {
             ),
             preview_speed: 0.0,
             sumbit_button: Button::gradient_border_and_image(visualiser, &sumbit_rect, button_border, 
-                load_image("assets/tick.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/tick.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             cancel_button: Button::gradient_border_and_image(visualiser, &cancel_rect, button_border, 
-                load_image("assets/cross.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/cross.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
         }
@@ -5464,12 +5464,12 @@ impl LeaveMenu {
         LeaveMenu {
             leave_button: Button::gradient_border_and_image(
                 visualiser, &leave_rect, screen_width()*NAVBAR_BORDER_WIDTH_PROPORTION, 
-                load_image("assets/door.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/door.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             close_button: Button::gradient_border_and_image(
                 visualiser, &leave_rect, screen_width()*NAVBAR_BORDER_WIDTH_PROPORTION, 
-                load_image("assets/cross.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/cross.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             input_box,
@@ -5477,7 +5477,7 @@ impl LeaveMenu {
             julia: LeaveMenu::get_option_button(visualiser, &julia_rect, "julia").await,
             exit: Button::gradient_border_and_image(
                 visualiser, &exit_rect, border_size, 
-                load_image("assets/door.png").await.unwrap(), DrawTextureParams::default(), 
+                load_png_image(include_bytes!("../assets/door.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             open: false
@@ -5489,7 +5489,7 @@ impl LeaveMenu {
 
         Button::gradient_border_and_text(
             visualiser, &rect, border_size, 
-            text, load_ttf_font("assets/Montserrat-SemiBold.ttf").await.unwrap(), 
+            text, main_font().await, 
             screen_width()*LEAVEMENU_OPTION_FONT_PROPORTION, 0., TextAlign::Centre, 
             HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
         )
