@@ -554,3 +554,10 @@ pub const ROYAL: [Color; 5] = [
     Color {r: 70.9/255., g: 125.4/255., b: 255./255., a: 1.},
     BLACK
 ];
+pub const TEST: [Color;5] =[
+    PINK,
+    BLACK,
+    BLUE,
+    ORANGE,
+    WHITE
+];

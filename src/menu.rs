@@ -3997,7 +3997,7 @@ impl PaletteEditor {
             colour_map_texture: Texture2D::empty(),
             colour_point_editors: Vec::new(),
             add_button: Button::gradient_border_and_image(visualiser, &add_rect, 
-                button_border, load_image("assets/plus.png").await.unwrap(), DrawTextureParams::default(), 
+                button_border, load_png_image(include_bytes!("../assets/plus.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             delete_button: Button::gradient_border_and_alternating_image(
@@ -4663,7 +4663,7 @@ struct VideoMenu {
     record: Button,
     export: Button,
     resume: Button,
-    cancel: Button,
+    pause: Button,
     import: Button,
     progress_bar: ProgressBar,
     exporting: bool,
@@ -4745,9 +4745,9 @@ impl VideoMenu {
                 load_png_image(include_bytes!("../assets/forward.png")), DrawTextureParams::default(), 
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
-            cancel: Button::gradient_border_and_image(
+            pause: Button::gradient_border_and_image(
                 visualiser, &cancel_rect, button_border, 
-                load_png_image(include_bytes!("../assets/stop.png")), DrawTextureParams::default(),
+                load_png_image(include_bytes!("../assets/pause.png")), DrawTextureParams::default(),
                 HOVER_WHITE_OVERLAY, HOVER_BLACK_OVERLAY
             ),
             import: Button::gradient_border_and_image(
@@ -4896,11 +4896,12 @@ impl MenuType for VideoMenu {
             self.record.draw();
             self.export.holding = true;
             self.export.draw();
-            self.cancel.update();
-            if self.cancel.clicked {
+            self.pause.update();
+            if self.pause.clicked {
                 visualiser.video_recorder.cancel_export();
                 visualiser.cancel_current_render();
                 self.exporting = false;
+                return MenuSignal::RefreshGradients;
             }
             if !visualiser.video_recorder.exporting {
                 self.exporting = false;
@@ -4930,7 +4931,7 @@ impl MenuType for VideoMenu {
         self.record.refresh_gradient(visualiser);
         self.export.refresh_gradient(visualiser);
         self.resume.refresh_gradient(visualiser);
-        self.cancel.refresh_gradient(visualiser);
+        self.pause.refresh_gradient(visualiser);
         self.import.refresh_gradient(visualiser);
 
         self.progress_bar.refresh_gradient(visualiser);
