@@ -102,7 +102,6 @@ fn check_chesum(text: &str) -> bool {
 fn get_unique_image_name(name: &String, dims: &ScreenDimensions, folder: &std::path::Path) -> String {
     for path in fs::read_dir(&folder).expect("unable to read folder") {
         if let Ok(path) = path {
-            println!("{}", path.file_name().into_string().unwrap());
             if &path.file_name().into_string().unwrap() == &format!["{}_{}.png", name, dims.to_string()] {
                 return get_unique_image_name(&format!["{}(1)", name], dims, folder);
             }
@@ -114,7 +113,6 @@ fn get_unique_image_name(name: &String, dims: &ScreenDimensions, folder: &std::p
 fn get_unique_video_name(name: &String, folder: &std::path::Path) -> String {
     for path in fs::read_dir(&folder).expect("unable to read folder") {
         if let Ok(path) = path {
-            println!("{}", path.file_name().into_string().unwrap());
             if &path.file_name().into_string().unwrap() == name {
                 return get_unique_video_name(&format!["{}(1)", name], folder);
             }
@@ -1261,8 +1259,9 @@ impl Exporter {
         images_path.push("images");
 
         match fs::create_dir(&images_path) {
-            _ => ()
+            _ => {}
         }
+        Exporter::add_examples(&images_path);
 
         Exporter { 
             exporting: false, 
@@ -1272,6 +1271,30 @@ impl Exporter {
             image: Arc::new(Mutex::new(Image::empty())),
             progress_tracker: Arc::new(Mutex::new(0)),
             visualiser_params: VisualiserParams::empty()
+        }
+    }
+
+    fn add_examples(images_path: &std::path::PathBuf) {
+        let mut example_path = images_path.clone();
+        example_path.push("examples");
+
+        match fs::create_dir(&example_path) {
+            _ => {}
+        }
+
+        let examples = vec![
+            include_bytes!("../assets/examples/images/example1.txt").to_vec(),
+            include_bytes!("../assets/examples/images/example2.txt").to_vec(),
+            include_bytes!("../assets/examples/images/example3.txt").to_vec(),
+            include_bytes!("../assets/examples/images/example4.txt").to_vec(),
+            include_bytes!("../assets/examples/images/example5.txt").to_vec(),
+            include_bytes!("../assets/examples/images/example6.txt").to_vec(),
+        ];
+
+        for (i, example) in examples.iter().enumerate() {
+            let mut eg = example_path.clone();
+            eg.push(format!["example{}.txt", i+1]);
+            fs::write(eg, example).unwrap();
         }
     }
 
@@ -1456,6 +1479,7 @@ impl VideoRecorder {
         match fs::create_dir(&videos_path) {
             _ => ()
         }
+        VideoRecorder::add_examples(&videos_path);
 
         VideoRecorder { 
             timestamps: Vec::new(), 
@@ -1472,6 +1496,26 @@ impl VideoRecorder {
             // pixel_step_multiplier: 0.0,
             image: Arc::new(Mutex::new(Image::empty())),
             progress_tracker: Arc::new(Mutex::new(0))
+        }
+    }
+
+    fn add_examples(videos_path: &std::path::PathBuf) {
+        let mut example_path = videos_path.clone();
+        example_path.push("examples");
+
+        match fs::create_dir(&example_path) {
+            _ => {}
+        }
+
+        let examples = vec![
+            include_bytes!("../assets/examples/videos/example1.txt").to_vec(),
+            include_bytes!("../assets/examples/videos/example2.txt").to_vec(),
+        ];
+
+        for (i, example) in examples.iter().enumerate() {
+            let mut eg = example_path.clone();
+            eg.push(format!["example{}.txt", i+1]);
+            fs::write(eg, example).unwrap();
         }
     }
 
@@ -2059,7 +2103,7 @@ impl Visualiser {
                 None,
                 1,
                 Arc::clone(&self.video_recorder.progress_tracker),
-                false
+                true
             );
             return;
         }

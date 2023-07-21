@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Fractal Renderer</title>
+        <link rel="stylesheet" href="css/styles.css">
+    </head>
+    <body>
+        <div id="header">   
+            <img src="images/header_back-min.png" alt="image">
+        </div>
+        <div id="header-overlay">
+            <h1>FRACTAL RENDERER</h1>
+        </div>
+        <div id="header-credit">
+            <h3>by <a href="https://github.com/costott" target="_blank">costott</a></h3>
+        </div>
+        
+        <div class="chapter">
+            <a class="heading" href="#preview" id="preview">Preview</a>
+            <br>
+            <video src="preview.mp4" alt="preview video" autoplay loop muted></video>
+        </div>
+        
+        <div class="chapter">
+            <a class="heading" href="#features" id="features">Features</a>
+            <ul>
+                <li>Render the <b>Mandelbrot</b> and <b>Julia</b> sets <i>(Buhddabrot coming soon)</i></li>
+                <li>Move around and zoom to explore the fractals as you please</li>
+                <li>Advanced menus, allowing you to completely customise your fractal images</li>
+                <li>Supports multiple <b>layers</b> to create more sophisticated images</li>
+                <li>Export and save both <b>images</b> and <b>videos</b></li>
+            </ul>
+        </div>
+
+        <div class="chapter">
+            <a class="heading" href="#download-link" id="download-link">Download</a>
+            <p>Like what you see? Head to the <a href="download.html" class="chapter-link">download page</a></p>
+        </div> 
+        
+        <div class="chapter">
+            <a class="heading" href="#technical-details" id="technical-details">Technical Details</a>
+            <ul>
+                <li>Created in pure <a href="https://www.rust-lang.org/" target="_blank" class="chapter-link">Rust</a> with custom code (including the menus)</li>
+                <li>Source code: <a href="https://github.com/costott/mandlebrot/tree/master/src" target="_blank" class="chapter-link">Github page</a></li>
+                <li>Can zoom up to 5e305x magnification <i>(deeper coming soon)</i>, using <b>arbirary precision</b> numbers for deep zooms</li>
+                <li>Uses mandelbrot <b>perturbation theory</b> to dramatically improve render times for deep zooms</li>
+                <li>11,000+ lines of code</li>
+            </ul>
+        </div>
+
+        <div class="chapter">
+            <a class="heading" href="#gallery" id="gallery">Gallery</a>
+
+            <script src="js/galleryscript.js"></script>
+            
+            <br>
+            <div id="gallery">
+                <div class="gallery-image">
+                    <a href="gallery/gallery1-save.txt" download="gallery1.txt" id="gallery-img1" onmouseover="display_info(1)" onmouseleave="close_info(1)">
+                        <img src="gallery/gallery1.png" alt="gallery 1"">
+                    </a>
+                    <div class="gallery-overlay" id="gallery-info1"></div>
+                </div>
+               
+                <div class="gallery-image">
+                    <a href="gallery/gallery2-save.txt" download="gallery2.txt" id="gallery-img2" onmouseover="display_info(2)"onmouseleave="close_info(2)">
+                        <img src="gallery/gallery2.png" alt="gallery 2">
+                    </a>
+                    <div class="gallery-overlay" id="gallery-info2"></div>
+                </div>
+                
+                <div class="gallery-image">
+                    <a href="gallery/gallery3-save.txt" download="gallery3.txt" id="gallery-img3" onmouseover="display_info(3)" onmouseleave="close_info(3)">
+                        <img src="gallery/gallery3.png" alt="gallery 3">
+                    </a>
+                    <div class="gallery-overlay" id="gallery-info3"></div>
+                </div>
+            </div>
+        </div>
+        
+    </body>
+</html>
