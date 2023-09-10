@@ -1,6 +1,6 @@
 # Mandelbrot (and Julia/Buddhabrot) visualiser
 
-https://costott.github.io/mandlebrot/
+## [View the website and download here](https://costott.github.io/mandlebrot/)
 
 Visualiser for the mandelbrot set.
 Allows you to move around and zoom into the mandelbrot set or a julia set.
