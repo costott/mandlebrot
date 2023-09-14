@@ -8,6 +8,7 @@ use macroquad::prelude::*;
 
 use std::sync::{Arc, Mutex};
 use native_dialog::FileDialog;
+use clipboard::ClipboardProvider;
 
 use super::{
     ScreenDimensions, Visualiser, interpolate_colour, 
@@ -595,6 +596,11 @@ impl Menu {
             _ => {}
         }
 
+        if visualiser.is_exporting() {
+            self.navbar.draw(self.state, self.state_font, self.text_colour);
+            return;
+        }
+
         self.state = self.navbar.update(self.state, self.state_font, self.text_colour);
 
         if self.state.no_navbar() { return }
@@ -1103,6 +1109,15 @@ impl Navbar {
             button.set_active(i == clicked_button as usize);
         }
         MenuState::map_button_states(clicked_button)
+    }
+
+    fn draw(&self, menu_state: MenuState, state_font: Font, text_colour: Color) {
+        draw_texture(self.back, 0., 0., WHITE);
+        for button in self.buttons.iter() {
+            button.draw();
+        }
+
+        menu_state.draw_state(state_font, text_colour);
     }
 }
 
@@ -1707,7 +1722,7 @@ impl TextBox {
 
         let key_pressed = get_char_pressed();
         if key_pressed.is_none() && !is_key_pressed(KeyCode::Right) && !is_key_pressed(KeyCode::Left) {
-            return None
+            return None;
         }
 
         let mut output: Option<String> = None;
@@ -1722,18 +1737,29 @@ impl TextBox {
         if is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::Enter) { 
             self.selected = false;
             output = Some(self.data_info.content.to_owned());
-        }
-        else if let Some(c) = key_pressed {
-            if c == '\u{0008}' { // backspace
-                if self.cursor_pos > 0  {
-                    self.data_info.content.remove(self.cursor_pos-1);
-                    self.cursor_pos -= 1;
-                }
-            } else {
-                self.data_info.content.insert(self.cursor_pos, c);
-                self.cursor_pos += 1;
+        } else if is_key_down(KeyCode::LeftControl) && is_key_pressed(KeyCode::V) {
+            let mut ctx: clipboard::ClipboardContext = clipboard::ClipboardProvider::new().unwrap();
+            if let Ok(paste) = ctx.get_contents() {
+                self.data_info.content.push_str(&paste);
+                self.data_info.remeasure();
+                self.cursor_pos = self.data_info.content.chars().count();
+            }
+        } else if is_key_down(KeyCode::Backspace) || is_key_pressed(KeyCode::Backspace) {
+            if is_key_down(KeyCode::LeftControl) {
+                self.data_info.content.clear();
+                self.start_pos = 0;
+                self.cursor_pos = 0;  
+            } else if self.cursor_pos > 0  {
+                self.data_info.content.remove(self.cursor_pos-1);
+                self.cursor_pos -= 1;
             }
             self.data_info.remeasure();
+        } else if let Some(c) = key_pressed {
+            if c != '\u{0008}' { // backspace
+                self.data_info.content.insert(self.cursor_pos, c);
+                self.cursor_pos += 1;
+                self.data_info.remeasure();
+            }
         }    
 
         if self.cursor_pos < self.start_pos {
@@ -2525,10 +2551,18 @@ impl JuliaEditor {
         }
     }
 
-    fn refresh_gradient(&mut self, visualiser: &Visualiser) {
+    fn refresh_gradients(&mut self, visualiser: &Visualiser) {
         self.seed_re.refresh_gradient(visualiser);
         self.seed_im.refresh_gradient(visualiser);
+
+        if !visualiser.fractal.is_julia() { return }
+
         self.request_render = true;
+
+        self.saved_julia_seed = match &visualiser.fractal {
+            Fractal::Julia(seed) => seed.double.clone(),
+            _ => panic!("fractal wasn't julia")
+        };
     }
 
     fn get_editing(&self) -> bool {
@@ -2683,7 +2717,7 @@ impl MenuType for GeneralMenu {
         for text_box in self.all_text_boxes().iter_mut() {
             text_box.refresh_gradient(visualiser);
         }
-        self.julia_editor.refresh_gradient(visualiser);
+        self.julia_editor.refresh_gradients(visualiser);
         self.progress_bar.refresh_gradient(visualiser);
     }
 }
@@ -3573,25 +3607,23 @@ impl OrbitTrapEditor {
 
         let mut changed = false;
 
-        if let Some(new_re) = self.center_re.update(orbit_trap.get_center_re().to_string()) {
-            if let Ok(new) = new_re.parse::<f64>() {
-                orbit_trap.set_center_re(new);
-                changed = true;
-            }
+        if self.trap_type.open || self.analysis.open {
+            self.center_re.draw();
+            self.center_im.draw()
+        } else {
+            if let Some(Ok(new)) = self.center_re
+                                    .update(orbit_trap.get_center_re().to_string())
+                                    .and_then(|new_re| Some(new_re.parse::<f64>())) {
+            orbit_trap.set_center_re(new);
+            changed = true;
         }
-        // if let Some(new_im) = self.center_im.update(orbit_trap.get_center_im().to_string()) {
-        //     if let Ok(new) = new_im.parse::<f64>() {
-        //         orbit_trap.set_center_im(new);
-        //         changed = true;
-        //     }
-        // }
         if let Some(Ok(new)) = self.center_im
                                     .update(orbit_trap.get_center_im().to_string())
                                     .and_then(|new_im| Some(new_im.parse::<f64>())) {
             orbit_trap.set_center_im(new);
             changed = true;
         }
-                            
+        }                    
 
         match orbit_trap {
             OrbitTrapType::Point(_) => {},
@@ -4333,6 +4365,7 @@ impl MenuType for PaletteEditor {
         if changed_this_frame {
             visualiser.layers.layers[self.layer_index].palette.generate_palette(visualiser.max_iterations);
             visualiser.generate_image();
+            self.refresh_gradients(visualiser);
         }
 
         self.sumbit_button.update();
@@ -4884,7 +4917,7 @@ impl MenuType for VideoMenu {
                     .add_filter("Text Files", &["txt"])
                     .show_open_single_file() 
                 {
-                    visualiser.video_recorder.import_from_file(&file_path, &visualiser.current_dimensions);
+                    visualiser.video_recorder.import_from_file(&file_path);
                     return MenuSignal::RecordVideo;
                 }
             }
@@ -4898,8 +4931,7 @@ impl MenuType for VideoMenu {
             self.export.draw();
             self.pause.update();
             if self.pause.clicked {
-                visualiser.video_recorder.cancel_export();
-                visualiser.cancel_current_render();
+                visualiser.pause_recording();
                 self.exporting = false;
                 return MenuSignal::RefreshGradients;
             }
@@ -5502,16 +5534,14 @@ impl LeaveMenu {
         self.mandelbrot.refresh_gradient(visualiser);
         self.julia.refresh_gradient(visualiser);
         self.exit.refresh_gradient(visualiser);
+        self.close_button.refresh_gradient(visualiser);
     }
 
     pub fn update(&mut self, running: &mut bool, visualiser: &mut Visualiser) {
         if !self.open { 
             self.leave_button.update();
-            if self.leave_button.clicked {
-                self.open = true;
-            } else {
-                return;
-            }
+            self.open = self.leave_button.clicked;
+            return;
         }
 
         draw_rect(

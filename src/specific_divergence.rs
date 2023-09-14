@@ -371,3 +371,21 @@ fn diverges_orbit_traps_3d_coloured(c: ComplexType, max_iterations: u32, traps: 
     }
     (0.0, 0.0, trapped_is)
 }
+
+// const SEED: Complex = Complex { real: 0.285 , im: 0. };
+// const SEED: Complex = Complex { real: -0.4, im: 0.6 };
+/// julia set divergence
+fn diverges_julia(c: Complex, max_iterations: u32, seed: &Complex) -> f64 {
+    let seed = Complex::new(seed.real, seed.im);
+
+    let mut z = c;
+    for i in 0..max_iterations {
+        z = z.square() + seed;
+        if z.abs_squared() > BAILOUT {
+            let log_zmod = f64::log2(z.abs_squared()) / 2.0;
+            let smooth_iteration = i as f64 - f64::log2(f64::max(1.0, log_zmod));
+            return smooth_iteration
+        }
+    }
+    0.0
+}

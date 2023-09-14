@@ -70,7 +70,7 @@ impl ComplexType {
     pub fn real_string(&self) -> String {
         match self {
             ComplexType::Double(c) => c.real.to_string(),
-            ComplexType::Big(c) => c.real.clone().with_base::<10>().value().to_string()
+            ComplexType::Big(c) => c.real.clone().with_base_and_precision::<10>(c.real.precision()).value().to_string()
         }
     }
 
@@ -93,7 +93,7 @@ impl ComplexType {
     pub fn im_string(&self) -> String {
         match self {
             ComplexType::Double(c) => c.im.to_string(),
-            ComplexType::Big(c) => c.im.clone().with_base::<10>().value().to_string()
+            ComplexType::Big(c) => c.im.clone().with_base_and_precision::<10>(c.im.precision()).value().to_string()
         }
     }
 
@@ -162,7 +162,7 @@ impl ComplexType {
             ComplexType::Double(c) => {
                 if c.im.to_string() != new {
                     *self = self.make_big();
-                    self.update_real_from_string(new);
+                    self.update_im_from_string(new);
                 }
             }
         }
