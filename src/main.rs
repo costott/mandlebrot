@@ -4,7 +4,7 @@
 // means, is strictly prohibited without prior written permission from the 
 // copyright owner.
 
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use macroquad::prelude::*;
 

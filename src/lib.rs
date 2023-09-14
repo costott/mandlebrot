@@ -472,7 +472,7 @@ pub mod orbit_trap {
 
             OrbitTrapCross::new(
                 (centre.real_f64(), centre.im_f64()),
-                lerpf64(p2.arm_length, p2.arm_length, percent),
+                lerpf64(p1.arm_length, p2.arm_length, percent),
                 p1.analysis
             )
         }
@@ -551,7 +551,7 @@ pub mod orbit_trap {
 
             OrbitTrapCircle::new(
                 (centre.real_f64(), centre.im_f64()),
-                lerpf64(p2.radius, p2.radius, percent),
+                lerpf64(p1.radius, p2.radius, percent),
                 p1.analysis
             )
         }
@@ -848,24 +848,6 @@ fn diverges(c: Complex, max_iterations: u32) -> f64 {
     0.0
 }
 
-// const SEED: Complex = Complex { real: 0.285 , im: 0. };
-// const SEED: Complex = Complex { real: -0.4, im: 0.6 };
-/// julia set divergence
-fn diverges_julia(c: Complex, max_iterations: u32, seed: &Complex) -> f64 {
-    let seed = Complex::new(seed.real, seed.im);
-
-    let mut z = c;
-    for i in 0..max_iterations {
-        z = z.square() + seed;
-        if z.abs_squared() > BAILOUT {
-            let log_zmod = f64::log2(z.abs_squared()) / 2.0;
-            let smooth_iteration = i as f64 - f64::log2(f64::max(1.0, log_zmod));
-            return smooth_iteration
-        }
-    }
-    0.0
-}
-
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
     (1f32 - t) * a + t * b
 }
@@ -889,7 +871,6 @@ fn lerpf64_ln(a: f64, b: f64, t: f64) -> f64 {
 //         true => lerpf64((m*a).exp(), (m*b).exp(), t).ln() / m,
 //         false => lerpf64((-m*a).exp(), (-m*b).exp(), t).ln() / -m
 //     }
-    
 // }
 
 fn lerpf64_pow(a: f64, b: f64, t: f64, p: f64) -> f64 {
@@ -1542,13 +1523,16 @@ impl VideoRecorder {
             _ => {}
         }
 
+        let mut percentages: Vec<f32> = self.sorted_timestamps.clone().iter().map(|ts| ts.percent).collect();
+        percentages.insert(0, 0.);
+        percentages.push(1.);
         // maximum differences between percentages
         let mut max_percent_diff = 0.0;
         // the percentage to add the new number at
         let mut percent_to_add = 0.0;
-        for i in 0..self.sorted_timestamps.len()-1 {
-            let this_diff = self.sorted_timestamps[i+1].percent - self.sorted_timestamps[i].percent;
-            let this_add = self.sorted_timestamps[i].percent + this_diff/2.;
+        for i in 0..percentages.len()-1 {
+            let this_diff = percentages[i+1] - percentages[i];
+            let this_add = percentages[i] + this_diff/2.;
             if this_diff < max_percent_diff { continue }
 
             if this_diff > max_percent_diff {
@@ -1654,6 +1638,7 @@ impl VideoRecorder {
         self.dims = dimensions.clone();
         self.changed = false;
         
+        self.sort_timestamps();
         // convert pixel steps to required quality
         let pixel_step_multiplier = current_dimensions.y as f64 / self.dims.y as f64;
         for timestamp in self.sorted_timestamps.iter_mut() {
@@ -1750,7 +1735,7 @@ impl VideoRecorder {
         self.completed_frames -= 1;
     }
 
-    fn import_from_file(&mut self, file_path: &std::path::PathBuf, current_dimensions: &ScreenDimensions) {
+    fn import_from_file(&mut self, file_path: &std::path::PathBuf) {
         let save_file = fs::read_to_string(file_path).expect("Unable to read file");
 
         if !check_chesum(&save_file) { return }
@@ -1782,12 +1767,6 @@ impl VideoRecorder {
         self.frames = frames;
         self.changed = false;
         self.needs_resume = true;
-
-        // TO DELETE: just for bigrender1080p
-        let pixel_step_multiplier = current_dimensions.y as f64 / self.dims.y as f64;
-        for timestamp in self.sorted_timestamps.iter_mut() {
-            timestamp.pixel_step *= pixel_step_multiplier;
-        }
 
         // count rendered frames
         let folder = file_path.as_path().parent().unwrap();
@@ -2279,7 +2258,7 @@ impl Visualiser {
             None,
             1,
             Arc::clone(&self.exporter.progress_tracker),
-            false
+            true
         );
     }
 
@@ -2290,6 +2269,15 @@ impl Visualiser {
             dimensions, &self.current_dimensions, 
             time, fps
         );
+    }
+
+    fn pause_recording(&mut self) {
+        self.video_recorder.cancel_export();
+        self.cancel_current_render();
+    }
+
+    fn is_exporting(&self) -> bool {
+        self.exporter.exporting || self.video_recorder.exporting
     }
 
     fn finish_render(&mut self) {
