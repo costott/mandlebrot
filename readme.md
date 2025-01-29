@@ -4,7 +4,7 @@
 
 Visualiser for the mandelbrot set.
 Allows you to move around and zoom into the mandelbrot set or a julia set.
-It can also render an image for the Buddahbrot set.
+It can also render an image for the Buddahbrot set (the code has to be manually changed).
 
 ## Controls
 `WASD` - Move the view around <br>
